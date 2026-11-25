@@ -5,7 +5,9 @@
 레퍼런스 영상의 **형식**을 분석해, 다른 주제의 설명 영상을 만드는 Claude Code 멀티에이전트 파이프라인입니다.
 첫 작품: **「시간을 더 잘 쓰는 5가지 습관」** — 손그림 화이트보드 스타일, 한국어 남성 내레이션, 2분 50초.
 
-▶ 완성 영상: [`demo/time-habits-v3.mp4`](demo/time-habits-v3.mp4)
+[![완성 영상 썸네일 — 클릭하면 영상이 열립니다](demo/thumbnail.jpg)](demo/time-habits-v3.mp4)
+
+▶ 완성 영상(썸네일 포함 mp4): [`demo/time-habits-v3.mp4`](demo/time-habits-v3.mp4)
 
 > **AI 음성 고지**: 이 영상의 내레이션은 AI 음성 합성(Supertonic 2)으로 만든 기계 생성 음성입니다.
 
@@ -44,6 +46,8 @@ flowchart LR
 - **동시 실행**: `reference-analyst` ∥ `researcher`, `scene-builder` ∥ `sound-designer`
 - **사람이 멈춰서 확인하는 지점**: 대본·사실, 음색, 완성본
 - 역할 정의: [`.claude/agents/`](.claude/agents) · 작업 방법: [`SKILL.md`](.claude/skills/reference-style-video/SKILL.md) · 규칙: [`AGENTS.md`](AGENTS.md)
+- 단계별 진행 기록: [`STATUS.md`](projects/time-habits/STATUS.md)
+- **서브에이전트 실제 실행 기록**: 이 폴더에서 Claude Code가 8개 서브에이전트를 로드한 상태로 `qa-reviewer`가 완성본을 독립 검증했다 → [`qa/report-v3-subagent.md`](projects/time-habits/qa/report-v3-subagent.md). 결과는 FAIL(받아쓰기 2문장: c06은 표기 차이, c48은 사람이 직접 듣고 확인한 기록을 에이전트가 근거로 쓰지 않음). 사람이 확인한 뒤 v3를 최종본으로 유지했다.
 
 | 에이전트 | 하는 일 | 산출물 |
 |-|-|-|
@@ -89,7 +93,7 @@ reference-style-video 스킬과 AGENTS.md 규칙을 따라 줘.
 分析参考视频的**形式**，制作另一个主题讲解视频的 Claude Code 多智能体流水线。
 第一部作品：**「让你更好安排时间的 5 个习惯」**——手绘白板风格，韩语男声旁白，2 分 50 秒。
 
-▶ 成片：[`demo/time-habits-v3.mp4`](demo/time-habits-v3.mp4)
+▶ 成片（含封面的 mp4）：[`demo/time-habits-v3.mp4`](demo/time-habits-v3.mp4)，封面图 [`demo/thumbnail.jpg`](demo/thumbnail.jpg)
 
 > **AI 语音声明**：本视频的旁白是用 AI 语音合成（Supertonic 2）生成的机器语音。
 
@@ -112,6 +116,8 @@ reference-style-video 스킬과 AGENTS.md 규칙을 따라 줘.
 - **同时运行**：`reference-analyst` ∥ `researcher`，`scene-builder` ∥ `sound-designer`
 - **停下来由人确认**：文案与事实、音色、成片
 - 角色定义：`.claude/agents/` · 工作方法：`.claude/skills/reference-style-video/SKILL.md` · 规则：`AGENTS.md`
+- 各步骤进度记录：`projects/time-habits/STATUS.md`
+- **子代理真实运行记录**：在本文件夹中，Claude Code 加载 8 个子代理后，由 `qa-reviewer` 独立检查成片 → `projects/time-habits/qa/report-v3-subagent.md`。结果为 FAIL（转写有 2 句：c06 是写法差异；c48 有人工试听确认，但子代理不采信这条记录）。人工确认后保留 v3 作为定稿。
 
 ### 运行
 

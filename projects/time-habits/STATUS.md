@@ -15,3 +15,5 @@
 | 6 验证（v3） | qa-reviewer（报告正文由调度者保存） | PASS（附条件），待用户确认成片 | qa/report-v3.md, qa/mp4-sheet-v3.png, qa/asr-check-final-v3.json | 170.048 秒 1920x1080 30fps；60/60 句对齐偏移 0；峰值 -1.81dBFS；旁白 p90 -12.3dBFS（比参考小约 1.5～1.9dB）；转写 58/60（c06 同音写法、c48 已人工确认）；画面与 v1 逐像素相同 |
 | 7 成片确认 | 用户 | 完成 | out/time-habits-v3.mp4 | 用户试看后确认 v3 定稿（2026-11-25）；v1、v2 为中间版本 |
 | 7 成片确认（补记） | 用户（上级会话转达） | 完成 | out/time-habits-v3.mp4 | 用户在上级会话也确认 v3 定稿；上级会话逐帧扫描发现 43 帧短暂空白（多为切换后 1 帧，最长 124.13 秒处 7 帧），用户看过后接受 |
+| 6 验证（真实子代理） | qa-reviewer（项目子代理，Claude Code 从 .claude/agents/qa-reviewer.md 加载，经 Agent 工具 subagent_type 调用；Write 被子代理限制拒绝，报告正文由调度者原样保存） | FAIL（仅转写一项） | qa/report-v3-subagent.md, qa/mp4-sheet-v3-subagent.png, qa/asr-final-v3-subagent.json, qa/asr-check-v3-subagent.json, qa/asr-check-v3-tol2-subagent.json, qa/segments-v3-subagent/ | 2026-11-25；调度会话看到 8 个项目子代理；170.048 秒 1920x1080 30fps 有音轨、峰值 -1.81dBFS、无背景音乐/字幕条/裁切、CREDITS 齐全；转写 tol0 48/60、tol2 58/60（c06 同音写法、c48「블로그는」），子代理不采信 c48 人工确认故判 FAIL；124.13 秒 0.233 秒空背景待人确认 |
+| 7 定稿（复核后） | 用户 | 完成 | out/time-habits-v3.mp4 | 真实子代理 qa-reviewer 判 FAIL（仅转写：c06 写法差异、c48 不采信人工确认）；用户认可 c48 亲耳确认，保留 v3，不重新配音 |
