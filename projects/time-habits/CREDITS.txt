@@ -1,0 +1,32 @@
+# 출처와 라이선스
+
+## 배경음악
+- 없음. 이 영상에는 배경음악을 사용하지 않았다(music: null).
+
+## 효과음
+- pop.wav, whoosh.wav, ding.wav, pencil.wav — 이 프로젝트에서 브라우저 Web Audio(OfflineAudioContext)로 직접 합성한 자체 제작 음원.
+- 합성 코드: assets/sfx/synth.js / 목록·측정값: assets/sfx/list.md
+- 외부 효과음은 내려받지 않았다. 제3자 저작권 없음, 표기 의무 없음.
+
+## 음성 합성
+- Supertonic 2 (Supertone), BigScience Open RAIL-M License — https://huggingface.co/Supertone/supertonic-2
+- 음색: M3 / 말하기 속도: 0.9
+- 라이선스 사본: .claude/skills/reference-style-video/scripts/assets/SUPERTONIC_LICENSE
+- 라이선스 요점:
+  - 출력물(생성된 음성)에 대해 라이선스 제공자는 권리를 주장하지 않는다(6항). 출력물에 대한 별도 저작자 표기 의무 조항은 없다.
+  - 단, 사용 제한(Attachment A)을 지켜야 한다. 특히 (e)항: 기계가 생성한 콘텐츠임을 명확히 밝히지 않고 배포해서는 안 된다.
+    → 이 영상의 내레이션은 AI 음성 합성(Supertonic 2)으로 만든 기계 생성 음성이다.
+  - 그 밖에 불법 용도, 타인 사칭(딥페이크), 허위 정보로 타인을 해치는 용도, 의료 조언 등에 쓸 수 없다.
+  - 모델 자체를 재배포할 때만 라이선스 사본 제공·사용 제한 고지 의무가 있다(4항). 이 영상은 모델을 배포하지 않는다.
+
+## 글꼴
+- Gaegu (Regular, Bold) — Copyright 2018 The Gaegu Project Authors
+- SIL Open Font License 1.1 — https://github.com/google/fonts/tree/main/ofl/gaegu
+- 라이선스 사본: assets/fonts/OFL.txt
+
+## 사실 출처
+- research/facts.md 참고
+
+## 참고 영상
+- The English Class, "Learn How to Think In English" — https://youtu.be/MpiWuR-yL9k
+- 형식(구성·화풍)만 참고했다. 해당 영상의 화면, 소리, 음악은 사용하지 않았다.

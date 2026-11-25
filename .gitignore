@@ -1,0 +1,16 @@
+# 语音模型（体积大、授权）— 用 tools/setup.sh 下载
+.claude/skills/reference-style-video/scripts/assets/
+vendor/
+# 参考视频原片和从中截取的画面（版权）
+references/videos/*
+!references/videos/.gitkeep
+projects/*/analysis/frames/
+# 中间产物
+projects/*/tmp/
+projects/*/out/
+projects/*/lib/
+projects/*/qa/segments*/
+# 其他
+.env
+.DS_Store
+node_modules/

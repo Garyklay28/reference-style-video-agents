@@ -1,0 +1,20 @@
+# 출처와 라이선스
+
+## 배경음악
+- 곡명 / 작곡가 / 출처 URL / 라이선스 / 표기 문구
+
+## 효과음
+-
+
+## 음성 합성
+- Supertonic 2 (Supertone), OpenRAIL — https://huggingface.co/Supertone/supertonic-2
+- 음색:
+
+## 글꼴
+-
+
+## 3D 렌더러
+- three.js r160, MIT — https://threejs.org
+
+## 사실 출처
+- research/facts.md 참고

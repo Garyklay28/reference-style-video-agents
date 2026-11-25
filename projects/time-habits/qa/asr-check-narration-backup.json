@@ -1,0 +1,806 @@
+{
+ "tol": 2,
+ "matched": 60,
+ "total": 60,
+ "lines": [
+  {
+   "id": "c01",
+   "text": "하루가 왜 이렇게 짧을까요?",
+   "say": "하루가 왜 이렇게 짧을까요?",
+   "ok": true,
+   "take": "c01_3",
+   "best": {
+    "take": "c01_3",
+    "heard": "하루가 왜 이렇게 짧을까요?",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c02",
+   "text": "할 일은 많은데, 시간은 늘 없죠.",
+   "say": "할 일은 많은데, 시간은 늘 없죠.",
+   "ok": true,
+   "take": "c02_1",
+   "best": {
+    "take": "c02_1",
+    "heard": "할 일은 많은데 시간은 늘 없죠.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c03",
+   "text": "시간을 잘 쓰는 습관, 5가지예요.",
+   "say": "시간을 잘 쓰는 습관, 다섯 가지예요.",
+   "ok": true,
+   "take": "c03_1",
+   "best": {
+    "take": "c03_1",
+    "heard": "시간을 잘 쓰는 습관 5가지예요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c04",
+   "text": "여기 늘 바쁜 친구가 있어요.",
+   "say": "여기 늘 바쁜 친구가 있어요.",
+   "ok": true,
+   "take": "c04_2",
+   "best": {
+    "take": "c04_2",
+    "heard": "여기 늘 바쁜 친구가 있어요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c05",
+   "text": "계획을 세워도 매번 늦어져요.",
+   "say": "계획을 세워도 매번 늦어져요.",
+   "ok": true,
+   "take": "c05_1",
+   "best": {
+    "take": "c05_1",
+    "heard": "계획을 세워도 매번 늦어져요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c06",
+   "text": "심리학에선 '계획 오류'라고 불러요.",
+   "say": "심리학에선 계획 오류라고 불러요.",
+   "ok": true,
+   "take": "c06_3",
+   "best": {
+    "take": "c06_3",
+    "heard": "심리학에선 '계획 오류'라고 불러요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c07",
+   "text": "학생들에게 논문 기간을 물었어요.",
+   "say": "학생들에게 논문 기간을 물었어요.",
+   "ok": true,
+   "take": "c07_1",
+   "best": {
+    "take": "c07_1",
+    "heard": "학생들에게 논문 기간을 물었어요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c08",
+   "text": "예상은 평균 34일이었어요.",
+   "say": "예상은 평균 삼십사 일이었어요.",
+   "ok": true,
+   "take": "c08_2",
+   "best": {
+    "take": "c08_2",
+    "heard": "예상은 평균 34일이었어요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c09",
+   "text": "실제로는 56일이 걸렸어요.",
+   "say": "실제로는 오십육 일이 걸렸어요.",
+   "ok": true,
+   "take": "c09_1",
+   "best": {
+    "take": "c09_1",
+    "heard": "실제로는 56일이 걸렸어요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c10",
+   "text": "최악을 가정한 예상보다도 길었죠.",
+   "say": "최악을 가정한 예상보다도 길었죠.",
+   "ok": true,
+   "take": "c10_1",
+   "best": {
+    "take": "c10_1",
+    "heard": "최악을 가정한 예상보다도 길었죠.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c11",
+   "text": "미국인 48%는 시간이 모자라대요.",
+   "say": "미국인 사십팔 퍼센트는 시간이 모자라대요.",
+   "ok": true,
+   "take": "c11_1",
+   "best": {
+    "take": "c11_1",
+    "heard": "미국인 48%는 시간이 모자라대요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c12",
+   "text": "그럼 어떻게 해야 할까요?",
+   "say": "그럼 어떻게 해야 할까요?",
+   "ok": true,
+   "take": "c12_1",
+   "best": {
+    "take": "c12_1",
+    "heard": "그럼 어떻게 해야 할까요?",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c13",
+   "text": "첫 번째 습관, 뽀모도로.",
+   "say": "첫 번째 습관, 뽀모도로.",
+   "ok": true,
+   "take": "c13_4",
+   "best": {
+    "take": "c13_4",
+    "heard": "첫 번째 습관 뽀모도로",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c14",
+   "text": "25분 일하고 5분 쉬는 방법이에요.",
+   "say": "이십오 분 일하고 오 분 쉬는 방법이에요.",
+   "ok": true,
+   "take": "c14_1",
+   "best": {
+    "take": "c14_1",
+    "heard": "25분 일하고 5분 쉬는 방법이에요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c15",
+   "text": "프란체스코 시릴로가 만들었어요.",
+   "say": "프란체스코 시릴로가 만들었어요.",
+   "ok": true,
+   "take": "c15_3",
+   "best": {
+    "take": "c15_3",
+    "heard": "프란체스코 시릴로가 만들었어요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c16",
+   "text": "토마토 타이머에서 따온 이름이에요.",
+   "say": "토마토 타이머에서 따온 이름이에요.",
+   "ok": true,
+   "take": "c16_8",
+   "best": {
+    "take": "c16_8",
+    "heard": "토마토 타이머에서 따온 이름이에요.",
+    "distance": 0
+   },
+   "candidates": 10
+  },
+  {
+   "id": "c17",
+   "text": "쉬는 시간까지 미리 정해 두는 거죠.",
+   "say": "쉬는 시간까지 미리 정해 두는 거죠.",
+   "ok": true,
+   "take": "c17_1",
+   "best": {
+    "take": "c17_1",
+    "heard": "쉬는 시간까지 미리 정해 두는 거죠.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c18",
+   "text": "실험에선 정해 쉰 쪽이 덜 지쳤어요.",
+   "say": "실험에선 정해 쉰 쪽이 덜 지쳤어요.",
+   "ok": true,
+   "take": "c18_3",
+   "best": {
+    "take": "c18_3",
+    "heard": "실험에서는 정해 쉰 쪽이 덜 지쳤어요.",
+    "distance": 2
+   },
+   "candidates": 10
+  },
+  {
+   "id": "c19",
+   "text": "딴생각도 덜 하고 집중도 잘했어요.",
+   "say": "딴생각도 덜 하고 집중도 잘했어요.",
+   "ok": true,
+   "take": "c19_1",
+   "best": {
+    "take": "c19_1",
+    "heard": "딴 생각도 덜 하고 집중도 잘했어요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c20",
+   "text": "타이머를 25분에 맞추고 시작해요.",
+   "say": "타이머를 이십오 분에 맞추고 시작해요.",
+   "ok": true,
+   "take": "c20_1",
+   "best": {
+    "take": "c20_1",
+    "heard": "타이머를 25분에 맞추고 시작해요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c21",
+   "text": "4번 하고 나면 더 길게 쉬어요.",
+   "say": "네 번 하고 나면 더 길게 쉬어요.",
+   "ok": true,
+   "take": "c21_2",
+   "best": {
+    "take": "c21_2",
+    "heard": "4번 하고 나면 더 길게 쉬어요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c22",
+   "text": "두 번째 습관, 2분 규칙.",
+   "say": "두 번째 습관, 이 분 규칙.",
+   "ok": true,
+   "take": "c22_1",
+   "best": {
+    "take": "c22_1",
+    "heard": "두 번째 습관, 이분 규칙",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c23",
+   "text": "2분이면 끝날 일은 바로 해요.",
+   "say": "이 분이면 끝날 일은 바로 해요.",
+   "ok": true,
+   "take": "c23_2",
+   "best": {
+    "take": "c23_2",
+    "heard": "2분이면 끝날 일은 바로 해요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c24",
+   "text": "데이비드 앨런이 소개한 규칙이에요.",
+   "say": "데이비드 앨런이 소개한 규칙이에요.",
+   "ok": true,
+   "take": "c24_3",
+   "best": {
+    "take": "c24_3",
+    "heard": "데이비드 앨런이 소개한 규칙이에요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c25",
+   "text": "미뤄 두면 나중에 다시 봐야 하죠.",
+   "say": "미뤄 두면 나중에 다시 봐야 하죠.",
+   "ok": true,
+   "take": "c25_5",
+   "best": {
+    "take": "c25_5",
+    "heard": "미뤄 두면 나중에 다시 봐야 하죠.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c26",
+   "text": "그것만으로 벌써 2분이 넘어요.",
+   "say": "그것만으로 벌써 이 분이 넘어요.",
+   "ok": true,
+   "take": "c26_1",
+   "best": {
+    "take": "c26_1",
+    "heard": "그것만으로 벌써 2분이 넘어요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c27",
+   "text": "2분은 대략적인 기준이에요.",
+   "say": "이 분은 대략적인 기준이에요.",
+   "ok": true,
+   "take": "c27_1",
+   "best": {
+    "take": "c27_1",
+    "heard": "이분은 대략적인 기준이에요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c28",
+   "text": "세 번째 습관, 중요한 일 먼저.",
+   "say": "세 번째 습관, 중요한 일 먼저.",
+   "ok": true,
+   "take": "c28_1",
+   "best": {
+    "take": "c28_1",
+    "heard": "세 번째 습관, 중요한 일 먼저",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c29",
+   "text": "일을 급한가, 중요한가로 나눠요.",
+   "say": "일을 급한가, 중요한가로 나눠요.",
+   "ok": true,
+   "take": "c29_1",
+   "best": {
+    "take": "c29_1",
+    "heard": "이를 급한가 중요한가로 나눠요.",
+    "distance": 2
+   },
+   "candidates": 10
+  },
+  {
+   "id": "c30",
+   "text": "그러면 네 칸짜리 표가 생겨요.",
+   "say": "그러면 네 칸짜리 표가 생겨요.",
+   "ok": true,
+   "take": "c30_1",
+   "best": {
+    "take": "c30_1",
+    "heard": "그러면 4칸짜리 표가 생겨요.",
+    "distance": 1
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c31",
+   "text": "스티븐 코비가 정리한 방법이에요.",
+   "say": "스티븐 코비가 정리한 방법이에요.",
+   "ok": true,
+   "take": "c31_1",
+   "best": {
+    "take": "c31_1",
+    "heard": "스티븐 코비가 정리한 방법이에요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c32",
+   "text": "근데 우린 급한 일부터 손이 가요.",
+   "say": "근데 우린 급한 일부터 손이 가요.",
+   "ok": true,
+   "take": "c32_3",
+   "best": {
+    "take": "c32_3",
+    "heard": "근데, 우린 급한 일부터 손이 가요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c33",
+   "text": "중요하지만 안 급한 칸이 핵심이에요.",
+   "say": "중요하지만 안 급한 칸이 핵심이에요.",
+   "ok": true,
+   "take": "c33_1",
+   "best": {
+    "take": "c33_1",
+    "heard": "중요하지만 안급한 칸이 핵심이에요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c34",
+   "text": "준비, 공부, 휴식 같은 일이요.",
+   "say": "준비, 공부, 휴식 같은 일이요.",
+   "ok": true,
+   "take": "c34_1",
+   "best": {
+    "take": "c34_1",
+    "heard": "준비, 공부, 휴식 같은 일이요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c35",
+   "text": "여기에 시간을 먼저 떼어 두세요.",
+   "say": "여기에 시간을 먼저 떼어 두세요.",
+   "ok": true,
+   "take": "c35_1",
+   "best": {
+    "take": "c35_1",
+    "heard": "여기에 시간을 먼저 떼어두세요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c36",
+   "text": "네 번째 습관, 시간 블록.",
+   "say": "네 번째 습관, 시간 블록.",
+   "ok": true,
+   "take": "c36_2",
+   "best": {
+    "take": "c36_2",
+    "heard": "네 번째 습관, 시간 블록",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c37",
+   "text": "하루를 칸으로 나눠 할 일을 넣어요.",
+   "say": "하루를 칸으로 나눠 할 일을 넣어요.",
+   "ok": true,
+   "take": "c37_1",
+   "best": {
+    "take": "c37_1",
+    "heard": "하루를 칸으로 나눠 할 일을 넣어요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c38",
+   "text": "칼 뉴포트가 쓰는 방법이에요.",
+   "say": "칼 뉴포트가 쓰는 방법이에요.",
+   "ok": true,
+   "take": "c38_2",
+   "best": {
+    "take": "c38_2",
+    "heard": "칼 뉴포트가 쓰는 방법이에요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c39",
+   "text": "뉴포트 본인의 추정으로는,",
+   "say": "뉴포트 본인의 추정으로는,",
+   "ok": true,
+   "take": "c39_3",
+   "best": {
+    "take": "c39_2",
+    "heard": "유포트 본인의 추정으로는",
+    "distance": 1
+   },
+   "candidates": 10,
+   "override": {
+    "take": "c39_3",
+    "heard": "Newport 본인의 추정으로는",
+    "note": "调度者改选：转写「Newport 본인의 추정으로는」，Newport=뉴포트 仅写法差异；自动选的 c39_2 转写为「유포트」，可能读错",
+    "date": "2026-11-25"
+   }
+  },
+  {
+   "id": "c40",
+   "text": "40시간이 60시간 넘는 몫을 해요.",
+   "say": "사십 시간이 육십 시간 넘는 몫을 해요.",
+   "ok": true,
+   "take": "c40_1",
+   "best": {
+    "take": "c40_1",
+    "heard": "40시간이 60시간 넘는 목술해요.",
+    "distance": 2
+   },
+   "candidates": 10
+  },
+  {
+   "id": "c41",
+   "text": "전날 밤 10분에서 20분,",
+   "say": "전날 밤 십 분에서 이십 분,",
+   "ok": true,
+   "take": "c41_2",
+   "best": {
+    "take": "c41_2",
+    "heard": "전날 밤 10분에서 20분.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c42",
+   "text": "내일 할 일을 칸에 채워 넣어요.",
+   "say": "내일 할 일을 칸에 채워 넣어요.",
+   "ok": true,
+   "take": "c42_2",
+   "best": {
+    "take": "c42_2",
+    "heard": "내일 할 일을 칸에 채워 넣어요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c43",
+   "text": "계획이 틀어지면 다시 짜면 돼요.",
+   "say": "계획이 틀어지면 다시 짜면 돼요.",
+   "ok": true,
+   "take": "c43_4",
+   "best": {
+    "take": "c43_4",
+    "heard": "계획이 틀어지면 다시 짜면 돼요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c44",
+   "text": "마지막 습관, 만약-그러면 계획.",
+   "say": "마지막 습관, 만약 그러면 계획.",
+   "ok": true,
+   "take": "c44_2",
+   "best": {
+    "take": "c44_2",
+    "heard": "마지막 습관, 만약 그러면 계획.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c45",
+   "text": "'이 상황이면 이걸 한다'고 정해요.",
+   "say": "이 상황이면 이걸 한다고 정해요.",
+   "ok": true,
+   "take": "c45_1",
+   "best": {
+    "take": "c45_1",
+    "heard": "이 상황이면 이걸 한다고 정해요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c46",
+   "text": "밥 먹으면 바로 책을 펴는 식이에요.",
+   "say": "밥 먹으면 바로 책을 펴는 식이에요.",
+   "ok": true,
+   "take": "c46_6",
+   "best": {
+    "take": "c46_6",
+    "heard": "밥 먹으면 바로 책을 펴는 식이에요.",
+    "distance": 0
+   },
+   "candidates": 10
+  },
+  {
+   "id": "c47",
+   "text": "시간 블록이랑 뭐가 다르냐고요?",
+   "say": "시간 블록이랑 뭐가 다르냐고요?",
+   "ok": true,
+   "take": "c47_1",
+   "best": {
+    "take": "c47_1",
+    "heard": "시간 블록이랑 뭐가 다르냐고요?",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c48",
+   "text": "블록은 할 일에 시간을 정해 주고요,",
+   "say": "블록은 할 일에 시간을 정해 주고요,",
+   "ok": true,
+   "take": "c48_2",
+   "best": {
+    "take": "c48_2",
+    "heard": "블로그는 할 일에 시간을 정해주고요.",
+    "distance": 3
+   },
+   "candidates": 10,
+   "override": {
+    "take": "c48_2",
+    "heard": "블로그는 할 일에 시간을 정해주고요.",
+    "note": "转写恒为「블로그는」（블록은≈블로근），距离 3；用户亲耳试听确认读的是文案原句，人工采用",
+    "date": "2026-11-25"
+   }
+  },
+  {
+   "id": "c49",
+   "text": "이건 시작할 신호를 정하는 거예요.",
+   "say": "이건 시작할 신호를 정하는 거예요.",
+   "ok": true,
+   "take": "c49_1",
+   "best": {
+    "take": "c49_1",
+    "heard": "이건 시작할 신호를 정하는 거예요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c50",
+   "text": "피터 골비처가 제안한 방법이에요.",
+   "say": "피터 골비처가 제안한 방법이에요.",
+   "ok": true,
+   "take": "c50_7",
+   "best": {
+    "take": "c50_7",
+    "heard": "피터 골비처가 제안한 방법이에요.",
+    "distance": 0
+   },
+   "candidates": 10
+  },
+  {
+   "id": "c51",
+   "text": "94개 연구를 모아 보니,",
+   "say": "아흔네 개 연구를 모아 보니,",
+   "ok": true,
+   "take": "c51_1",
+   "best": {
+    "take": "c51_9",
+    "heard": "94개의 연구를 모아보니",
+    "distance": 1
+   },
+   "candidates": 10,
+   "override": {
+    "take": "c51_1",
+    "heard": "아흔 내게 연구를 모아보니",
+    "note": "调度者改选：转写「아흔 내게」与「아흔네 개」同音；自动选的 c51_9 多出「의」",
+    "date": "2026-11-25"
+   }
+  },
+  {
+   "id": "c52",
+   "text": "목표만 세울 때보다 효과가 컸어요.",
+   "say": "목표만 세울 때보다 효과가 컸어요.",
+   "ok": true,
+   "take": "c52_1",
+   "best": {
+    "take": "c52_1",
+    "heard": "목표만 세울 때보다 효과가 컸어요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c53",
+   "text": "미루던 일 하나에 '만약'을 붙여요.",
+   "say": "미루던 일 하나에 만약을 붙여요.",
+   "ok": true,
+   "take": "c53_8",
+   "best": {
+    "take": "c53_8",
+    "heard": "미루던 일 하나에 만약을 붙여요.",
+    "distance": 0
+   },
+   "candidates": 10
+  },
+  {
+   "id": "c54",
+   "text": "자, 5가지를 정리해 볼게요.",
+   "say": "자, 다섯 가지를 정리해 볼게요.",
+   "ok": true,
+   "take": "c54_1",
+   "best": {
+    "take": "c54_1",
+    "heard": "자, 5가지를 정리해 볼게요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c55",
+   "text": "25분 집중하고, 2분 일은 바로.",
+   "say": "이십오 분 집중하고, 이 분 일은 바로.",
+   "ok": true,
+   "take": "c55_1",
+   "best": {
+    "take": "c55_1",
+    "heard": "25분 집중하고 2분 일은 바로.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c56",
+   "text": "중요한 일 먼저, 하루는 블록으로.",
+   "say": "중요한 일 먼저, 하루는 블록으로.",
+   "ok": true,
+   "take": "c56_1",
+   "best": {
+    "take": "c56_1",
+    "heard": "중요한 일 먼저, 하루는 블로그로.",
+    "distance": 2
+   },
+   "candidates": 10
+  },
+  {
+   "id": "c57",
+   "text": "그리고 '만약' 한 줄로 시작하기.",
+   "say": "그리고 만약 한 줄로 시작하기.",
+   "ok": true,
+   "take": "c57_3",
+   "best": {
+    "take": "c57_3",
+    "heard": "그리고 만약 한 줄로 시작하기.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c58",
+   "text": "그러니까 오늘부터,",
+   "say": "그러니까 오늘부터,",
+   "ok": true,
+   "take": "c58_1",
+   "best": {
+    "take": "c58_1",
+    "heard": "그러니까 오늘부터",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c59",
+   "text": "딱 하나만 골라 보세요.",
+   "say": "딱 하나만 골라 보세요.",
+   "ok": true,
+   "take": "c59_3",
+   "best": {
+    "take": "c59_3",
+    "heard": "딱 하나만 골라 보세요.",
+    "distance": 0
+   },
+   "candidates": 5
+  },
+  {
+   "id": "c60",
+   "text": "내일 첫 25분부터 정해 보세요.",
+   "say": "내일 첫 이십오 분부터 정해 보세요.",
+   "ok": true,
+   "take": "c60_1",
+   "best": {
+    "take": "c60_1",
+    "heard": "내일 첫 25분부터 정해보세요.",
+    "distance": 0
+   },
+   "candidates": 5
+  }
+ ],
+ "note": "c48 人工确认；c39、c51 调度者改选（见各行 override）"
+}

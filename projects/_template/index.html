@@ -1,0 +1,163 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>scene</title>
+<!--
+  장면 템플릿. 이 파일을 고쳐 프로젝트의 장면을 만든다.
+  지켜야 할 구조 (AGENTS.md):
+    - renderAt(t) 하나가 화면 전체를 결정한다. 같은 t → 같은 프레임. Math.random / Date.now / 실시간 애니메이션 금지.
+    - 등장 시점은 전부 c(n, offset)로 정의한다. 숫자 초를 직접 쓰지 않는다.
+    - 자막·라벨·X표는 3D 좌표를 화면에 투영해 2D canvas에 그린다.
+  서버: node .claude/skills/reference-style-video/scripts/serve.mjs . 4801  →  http://127.0.0.1:4801/projects/<slug>/
+  미리보기: ?t=12.5 로 특정 시점 확인, 아래 슬라이더로 이동. 프레임 시트: await sheet([1,2,3], 4, 270, 'projects/<slug>/qa/sheet.png')
+-->
+<style>
+  html, body { margin: 0; background: #111; color: #ddd; font: 13px system-ui, sans-serif; }
+  #out { display: block; height: calc(100vh - 40px); margin: 0 auto; }
+  #bar { display: flex; gap: 8px; align-items: center; height: 40px; padding: 0 12px; }
+  #bar input { flex: 1; }
+</style>
+<canvas id="out"></canvas>
+<div id="bar"><span id="tl">0.00s</span><input id="scrub" type="range" min="0" step="0.01" value="0"></div>
+<script src="lib/three.min.js"></script>
+<script src="timing.js" onerror="window.__noTiming = true"></script>
+<script src="/.claude/skills/reference-style-video/scripts/export.js"></script>
+<script type="module">
+// ───────── 규격 ─────────
+const W = 1080, H = 1920, FPS = 30;
+
+// ───────── 타이밍: timing.js(build-timing.mjs가 생성)가 없으면 임시 타이밍으로 미리보기만 한다 ─────────
+if (!window.CAPS) {
+  const lines = await (await fetch('script.json')).json();
+  let t = 0.25;
+  window.CAPS = lines.map((l) => { t += l.pause || 0; const c = { id: l.id, text: l.text, start: +t.toFixed(3), dur: 1.8 }; t += 1.88; return c; });
+  window.CAPS.forEach((c, i, a) => { c.end = i < a.length - 1 ? a[i + 1].start - 0.04 : c.start + c.dur + 1.4; });
+  window.DUR = +(t + 1.8).toFixed(2);
+  window.PLACEHOLDER_TIMING = true;
+}
+const CAPS = window.CAPS, DUR = window.DUR;
+/** n번째 자막(1부터)의 시작 시각 + offset */
+const c = (n, offset = 0) => CAPS[Math.max(1, Math.min(n, CAPS.length)) - 1].start + offset;
+
+// ───────── 등장 시점 표 T: 모든 시각은 c(n)에서 계산 ─────────
+const T = {
+  ground: c(1),
+  boxA: c(2),
+  boxB: c(2, 0.6),
+  markX: c(3),
+};
+
+// ───────── 효과음 큐: 같은 T에서 만든다 (파일은 assets/sfx/) ─────────
+const SFX = [
+  // { file: 'assets/sfx/pop.wav', t: T.boxA, vol: 1 },
+];
+
+// ───────── three.js 장면 ─────────
+const gl = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+gl.setPixelRatio(1); gl.setSize(W, H, false);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#dfe7ee');
+const cam = new THREE.PerspectiveCamera(35, W / H, 0.1, 500);
+scene.add(new THREE.HemisphereLight('#ffffff', '#8a7b6a', 0.9));
+const sun = new THREE.DirectionalLight('#ffffff', 1.1); sun.position.set(8, 14, 6); scene.add(sun);
+
+const ACCENT = new THREE.Color('#ff8a1f');           // 새로 생긴 것의 강조색
+const items = [];                                    // { mesh, at, color }
+function add(mesh, at, color) {
+  mesh.material = new THREE.MeshStandardMaterial({ color, roughness: 0.85 });
+  scene.add(mesh); items.push({ mesh, at, color: new THREE.Color(color) }); return mesh;
+}
+// 땅 단면(디오라마 받침)
+add(new THREE.Mesh(new THREE.BoxGeometry(10, 2, 10)), T.ground, '#8b6b4a').position.set(0, -1, 0);
+add(new THREE.Mesh(new THREE.BoxGeometry(10, 0.2, 10)), T.ground, '#7fae5b').position.set(0, 0.1, 0);
+add(new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2)), T.boxA, '#c9b79c').position.set(-2, 1.2, 0);
+add(new THREE.Mesh(new THREE.BoxGeometry(1.4, 3, 1.4)), T.boxB, '#9fb3c8').position.set(2, 1.7, -1);
+
+// 카메라 샷: 자막마다 하나. 샷 사이는 MOVE초 이동, cut:true면 하드 컷
+const MOVE = 0.5;
+const SHOTS = [
+  { at: c(1), pos: [14, 11, 16], look: [0, 0, 0] },
+  { at: c(2), pos: [8, 6, 10], look: [0, 1, 0] },
+  { at: c(3), pos: [-9, 7, 11], look: [0, 1, 0] },
+];
+// 주석: 3D 좌표 → 화면 2D
+const LABELS = [{ from: T.boxA, pos: [-2, 2.6, 0], text: '라벨 예시' }];
+const MARKS = [{ from: T.markX, pos: [2, 1.7, -1], size: 70 }];
+
+// ───────── 보조 함수 ─────────
+const clamp = (x) => Math.max(0, Math.min(1, x));
+const smooth = (x) => { x = clamp(x); return x * x * (3 - 2 * x); };
+const pop = (t, at, d = 0.35) => { if (t < at) return 0; const x = clamp((t - at) / d); return 1 + 2.2 * Math.pow(x - 1, 3) + 1.2 * Math.pow(x - 1, 2); };
+const v3 = (a) => new THREE.Vector3(...a);
+function cameraAt(t) {
+  let i = 0; while (i + 1 < SHOTS.length && SHOTS[i + 1].at <= t) i++;
+  const s = SHOTS[i], p = SHOTS[i - 1];
+  let k = 1; if (p && !s.cut) k = smooth((t - s.at) / MOVE);
+  const pos = p ? v3(p.pos).lerp(v3(s.pos), k) : v3(s.pos);
+  const look = p ? v3(p.look).lerp(v3(s.look), k) : v3(s.look);
+  cam.position.copy(pos); cam.lookAt(look);
+}
+function toScreen(pos) { const v = v3(pos).project(cam); return [(v.x + 1) / 2 * W, (1 - v.y) / 2 * H, v.z < 1]; }
+
+// ───────── 출력 canvas(2D): 3D 렌더 + 주석 + 자막 ─────────
+const out = document.getElementById('out'); out.width = W; out.height = H;
+const g = out.getContext('2d');
+const FONT = '"Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif';
+
+function drawCaption(text) {
+  g.font = `700 54px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.lineJoin = 'round'; g.lineWidth = 8; g.strokeStyle = 'rgba(0,0,0,0.75)'; g.fillStyle = '#fff';
+  g.strokeText(text, W / 2, H * 0.75); g.fillText(text, W / 2, H * 0.75);
+}
+function drawLabel(x, y, text, a) {
+  g.globalAlpha = a; g.font = `700 40px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle';
+  const w = g.measureText(text).width + 36;
+  g.fillStyle = '#ff8a1f'; g.beginPath(); g.roundRect(x - w / 2, y - 32, w, 64, 14); g.fill();
+  g.fillStyle = '#fff'; g.fillText(text, x, y); g.globalAlpha = 1;
+}
+function drawX(x, y, s, a) {
+  g.globalAlpha = a; g.strokeStyle = '#e53935'; g.lineWidth = 14; g.lineCap = 'round';
+  g.beginPath(); g.moveTo(x - s, y - s); g.lineTo(x + s, y + s); g.moveTo(x + s, y - s); g.lineTo(x - s, y + s); g.stroke();
+  g.globalAlpha = 1;
+}
+
+function renderAt(t) {
+  for (const it of items) {
+    const s = pop(t, it.at); it.mesh.visible = s > 0.001; it.mesh.scale.setScalar(Math.max(s, 0.001));
+    it.mesh.material.color.copy(ACCENT).lerp(it.color, smooth((t - it.at) / 0.8));
+  }
+  cameraAt(t);
+  gl.render(scene, cam);
+  g.clearRect(0, 0, W, H); g.drawImage(gl.domElement, 0, 0, W, H);
+  for (const l of LABELS) if (t >= l.from && (!l.to || t < l.to)) { const [x, y, ok] = toScreen(l.pos); if (ok) drawLabel(x, y, l.text, smooth((t - l.from) / 0.25)); }
+  for (const m of MARKS) if (t >= m.from && (!m.to || t < m.to)) { const [x, y, ok] = toScreen(m.pos); if (ok) drawX(x, y, m.size * pop(t, m.from), 1); }
+  const cap = CAPS.find((k) => t >= k.start && t < k.end); if (cap) drawCaption(cap.text);
+  if (window.PLACEHOLDER_TIMING) { g.font = `700 30px ${FONT}`; g.textAlign = 'left'; g.fillStyle = '#e53935'; g.fillText('임시 타이밍 (timing.js 없음)', 30, 50); }
+}
+
+// ───────── 프레임 시트: 장면을 고칠 때마다 자막별로 확인 ─────────
+window.sheet = async (times = CAPS.map((k) => (k.start + k.end) / 2), cols = 6, width = 270, savePath = null) => {
+  const h = Math.round(width * H / W), rows = Math.ceil(times.length / cols);
+  const sc = document.createElement('canvas'); sc.width = cols * width; sc.height = rows * (h + 28);
+  const sg = sc.getContext('2d'); sg.fillStyle = '#222'; sg.fillRect(0, 0, sc.width, sc.height);
+  times.forEach((tt, i) => {
+    renderAt(tt); const x = (i % cols) * width, y = Math.floor(i / cols) * (h + 28);
+    sg.drawImage(out, x, y, width, h); sg.fillStyle = '#ddd'; sg.font = '16px sans-serif'; sg.fillText(`${tt.toFixed(2)}s`, x + 6, y + h + 20);
+  });
+  renderAt(+scrub.value);
+  if (savePath) { const b = await new Promise((r) => sc.toBlob(r, 'image/png')); await fetch('/__save?path=' + encodeURIComponent(savePath), { method: 'POST', body: b }); }
+  return sc.toDataURL('image/jpeg', 0.8);
+};
+
+// ───────── 내보내기 연결 (scripts/export.js) ─────────
+window.renderAt = renderAt;
+Object.assign(window, { W, H, FPS, T, SFX, c });
+window.installExport({ W, H, FPS, DUR, CAPS, SFX, renderAt, canvas: out,
+  music: null /* { file: 'assets/music/<곡>.mp3', rms: 0.03 } — CREDITS.txt에 출처 기록 */, duck: [] });
+
+// ───────── 미리보기 UI ─────────
+const scrub = document.getElementById('scrub'), tl = document.getElementById('tl');
+scrub.max = DUR; scrub.value = +(new URLSearchParams(location.search).get('t') || 0);
+const show = () => { renderAt(+scrub.value); tl.textContent = (+scrub.value).toFixed(2) + 's / ' + DUR + 's'; };
+scrub.oninput = show; show();
+window.__ready = true;
+</script>

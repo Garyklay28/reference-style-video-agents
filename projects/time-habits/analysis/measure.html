@@ -1,0 +1,130 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>measure</title>
+<!-- SKILL.md 2. 参考视频分析：在页面内用 video 元素和 canvas 测量。由 serve.mjs 从仓库根目录提供。 -->
+<body style="margin:0;background:#111;color:#ddd;font:13px system-ui">
+<video id="v" muted playsinline preload="auto" style="width:480px"></video>
+<pre id="log"></pre>
+<script>
+const SRC = '/references/videos/reference-think-in-english.mp4';
+const OUT = 'projects/time-habits/analysis/';
+const v = document.getElementById('v');
+const log = (...a) => { document.getElementById('log').textContent += a.join(' ') + '\n'; };
+const save = async (name, body) => { const r = await fetch('/__save?path=' + encodeURIComponent(OUT + name), { method: 'POST', body }); return r.text(); };
+const seek = (t) => new Promise((res) => { const h = () => { v.removeEventListener('seeked', h); res(); }; v.addEventListener('seeked', h); v.currentTime = t; });
+
+window.load = () => new Promise((res, rej) => {
+  v.src = SRC;
+  v.onloadedmetadata = () => res({ duration: v.duration, width: v.videoWidth, height: v.videoHeight });
+  v.onerror = () => rej(String(v.error && v.error.message || v.error && v.error.code));
+});
+
+// 帧总览：覆盖全片，共 n 张
+window.sheet = async (n = 40, cols = 8, w = 320) => {
+  const D = v.duration, h = Math.round(w * v.videoHeight / v.videoWidth), rows = Math.ceil(n / cols);
+  const c = document.createElement('canvas'); c.width = cols * w; c.height = rows * (h + 22);
+  const g = c.getContext('2d'); g.fillStyle = '#222'; g.fillRect(0, 0, c.width, c.height);
+  const times = [];
+  for (let k = 0; k < n; k++) {
+    const t = (k + 0.5) * D / n; times.push(+t.toFixed(2)); await seek(t);
+    const x = (k % cols) * w, y = Math.floor(k / cols) * (h + 22);
+    g.drawImage(v, x, y, w, h); g.fillStyle = '#ddd'; g.font = '14px sans-serif'; g.fillText(t.toFixed(1) + 's', x + 6, y + h + 16);
+  }
+  await save('frames/sheet.png', await new Promise((r) => c.toBlob(r, 'image/png')));
+  return times;
+};
+
+// 单帧（全分辨率）
+window.frame = async (t, name) => {
+  await seek(t); const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
+  c.getContext('2d').drawImage(v, 0, 0); return save('frames/' + name, await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.85)));
+};
+
+// 剪切点 + 字幕切换：每 step 秒取一帧
+//  剪切点：64x36 灰度帧与上一帧的平均差值
+//  字幕：字幕带（画面高度 band[0]~band[1]）中 RGB 都大于 thr 的白色像素蒙版变化
+window.scan = async (step = 0.1, band = [0.735, 0.775], thr = 235, bandW = 480) => {
+  const D = v.duration, n = Math.floor(D / step);
+  const sc = document.createElement('canvas'); sc.width = 64; sc.height = 36; const sg = sc.getContext('2d', { willReadFrequently: true });
+  const bh = Math.max(4, Math.round((band[1] - band[0]) * v.videoHeight * bandW / v.videoWidth));
+  const bc = document.createElement('canvas'); bc.width = bandW; bc.height = bh; const bg = bc.getContext('2d', { willReadFrequently: true });
+  const sy = band[0] * v.videoHeight, sh = (band[1] - band[0]) * v.videoHeight;
+  let prev = null, prevMask = null; const diff = new Float32Array(n), mask = new Float32Array(n), white = new Float32Array(n);
+  const t0 = performance.now();
+  for (let i = 0; i < n; i++) {
+    await seek(i * step);
+    sg.drawImage(v, 0, 0, 64, 36); const d = sg.getImageData(0, 0, 64, 36).data;
+    const lum = new Float32Array(64 * 36); for (let p = 0; p < lum.length; p++) lum[p] = 0.299 * d[p * 4] + 0.587 * d[p * 4 + 1] + 0.114 * d[p * 4 + 2];
+    if (prev) { let s = 0; for (let p = 0; p < lum.length; p++) s += Math.abs(lum[p] - prev[p]); diff[i] = s / lum.length; }
+    prev = lum;
+    bg.drawImage(v, 0, sy, v.videoWidth, sh, 0, 0, bandW, bh); const b = bg.getImageData(0, 0, bandW, bh).data;
+    const m = new Uint8Array(bandW * bh); let wc = 0;
+    for (let p = 0; p < m.length; p++) { if (b[p * 4] > thr && b[p * 4 + 1] > thr && b[p * 4 + 2] > thr) { m[p] = 1; wc++; } }
+    white[i] = wc / m.length;
+    if (prevMask) { let x = 0, u = 0; for (let p = 0; p < m.length; p++) { if (m[p] !== prevMask[p]) x++; if (m[p] || prevMask[p]) u++; } mask[i] = u ? x / u : 0; }
+    prevMask = m;
+    if (i % 500 === 0) log('scan', i, '/', n, ((performance.now() - t0) / 1000).toFixed(0) + 's');
+  }
+  window.__scan = { step, band, thr, diff: Array.from(diff, (x) => +x.toFixed(2)), mask: Array.from(mask, (x) => +x.toFixed(3)), white: Array.from(white, (x) => +x.toFixed(4)) };
+  await save('scan.json', JSON.stringify(window.__scan));
+  return { frames: n, secs: ((performance.now() - t0) / 1000).toFixed(0) };
+};
+
+// 本视频没有底部字幕条：文字以深色“文字卡”出现在浅色背景上。
+// 每 step 秒取一帧（160x90），记录：与上一帧的差值、深色像素比例、深色像素所在行的跨度、彩色像素比例。
+window.scan2 = async (step = 0.1, dark = 90) => {
+  const D = v.duration, n = Math.floor(D / step), W = 160, H = 90;
+  const c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d', { willReadFrequently: true });
+  let prev = null; const out = { step, dark, W, H, diff: [], ink: [], rowMin: [], rowMax: [], color: [] };
+  const t0 = performance.now();
+  for (let i = 0; i < n; i++) {
+    await seek(i * step); g.drawImage(v, 0, 0, W, H); const d = g.getImageData(0, 0, W, H).data;
+    const lum = new Float32Array(W * H); let ink = 0, col = 0, r0 = H, r1 = -1; const rowInk = new Uint16Array(H);
+    for (let p = 0; p < W * H; p++) {
+      const r = d[p * 4], gg = d[p * 4 + 1], b = d[p * 4 + 2]; const l = 0.299 * r + 0.587 * gg + 0.114 * b; lum[p] = l;
+      if (l < dark) { ink++; rowInk[(p / W) | 0]++; }
+      if (Math.max(r, gg, b) - Math.min(r, gg, b) > 60) col++;
+    }
+    for (let y = 0; y < H; y++) if (rowInk[y] >= 2) { if (y < r0) r0 = y; r1 = y; }
+    let df = 0; if (prev) { for (let p = 0; p < lum.length; p++) df += Math.abs(lum[p] - prev[p]); df /= lum.length; }
+    prev = lum;
+    out.diff.push(+df.toFixed(2)); out.ink.push(+(ink / (W * H)).toFixed(4)); out.rowMin.push(r1 < 0 ? -1 : r0); out.rowMax.push(r1); out.color.push(+(col / (W * H)).toFixed(4));
+    if (i % 500 === 0) log('scan2', i, '/', n, ((performance.now() - t0) / 1000).toFixed(0) + 's');
+  }
+  await save('scan2.json', JSON.stringify(out));
+  return { frames: n, secs: ((performance.now() - t0) / 1000).toFixed(0) };
+};
+
+// 声音：解码音轨
+window.audio = async () => {
+  const ab = await (await fetch(SRC)).arrayBuffer();
+  const ac = new OfflineAudioContext(1, 44100, 44100);
+  const buf = await ac.decodeAudioData(ab);
+  const sr = buf.sampleRate, ch = buf.numberOfChannels, N = buf.length, x = new Float32Array(N);
+  for (let c = 0; c < ch; c++) { const d = buf.getChannelData(c); for (let i = 0; i < N; i++) x[i] += d[i] / ch; }
+  // 10ms RMS 包络
+  const w = Math.round(sr / 100), nw = Math.floor(N / w), rms = new Float32Array(nw);
+  for (let k = 0; k < nw; k++) { let s = 0; for (let i = k * w; i < (k + 1) * w; i++) s += x[i] * x[i]; rms[k] = Math.sqrt(s / w); }
+  // F0：40ms 窗口自相关，70~400Hz，只看较响的帧
+  const sorted = Float32Array.from(rms).sort(), loud = sorted[Math.floor(nw * 0.6)];
+  // F0 用 4 倍降采样（约 11kHz）计算，每 50ms 一帧
+  const ds = 4, sr2 = sr / ds, M = Math.floor(N / ds), y = new Float32Array(M);
+  for (let i = 0; i < M; i++) { let s = 0; for (let j = 0; j < ds; j++) s += x[i * ds + j]; y[i] = s / ds; }
+  const f0 = []; const L = Math.round(sr2 * 0.04), minLag = Math.floor(sr2 / 400), maxLag = Math.ceil(sr2 / 70);
+  for (let k = 0; k + 4 < nw; k += 5) {
+    if (rms[k] < loud) continue;
+    const s0 = Math.floor(k * w / ds); if (s0 + L + maxLag >= M) break;
+    let e0 = 0; for (let i = 0; i < L; i++) e0 += y[s0 + i] * y[s0 + i];
+    let best = 0, bl = 0;
+    for (let lag = minLag; lag <= maxLag; lag++) { let s = 0, e1 = 0; for (let i = 0; i < L; i++) { s += y[s0 + i] * y[s0 + i + lag]; e1 += y[s0 + i + lag] * y[s0 + i + lag]; } const r = s / Math.sqrt(e0 * e1 + 1e-12); if (r > best) { best = r; bl = lag; } }
+    if (best > 0.6) f0.push(sr2 / bl);
+  }
+  f0.sort((a, b) => a - b);
+  window.__audio = { sr, channels: ch, duration: N / sr, rms: Array.from(rms, (v) => +v.toFixed(5)), f0Count: f0.length,
+    f0Median: f0.length ? +f0[f0.length >> 1].toFixed(1) : null, f0P10: f0.length ? +f0[Math.floor(f0.length * 0.1)].toFixed(1) : null, f0P90: f0.length ? +f0[Math.floor(f0.length * 0.9)].toFixed(1) : null };
+  await save('audio-rms.json', JSON.stringify({ sr, hop: 0.01, rms: window.__audio.rms }));
+  const { rms: _, ...rest } = window.__audio; return rest;
+};
+window.__ready = true;
+</script>
+</body>

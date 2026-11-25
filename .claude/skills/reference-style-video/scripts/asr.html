@@ -1,0 +1,9 @@
+<!doctype html><meta charset="utf-8"><title>asr2</title>
+<script type="module">
+import { pipeline } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.5';
+window.job = { state: 'idle' }; window.out = {};
+window.init = (model, device, dtype) => { window.job = { state: 'loading' }; (async () => { try { window.asr = await pipeline('automatic-speech-recognition', model, { device, dtype }); window.job = { state: 'ready', gpu: !!navigator.gpu }; } catch (e) { window.job = { state: 'error', err: String(e && e.stack || e) }; } })(); };
+const load16k = async (url) => { const ab = await (await fetch(url + '?' + Date.now())).arrayBuffer(); const tmp = new OfflineAudioContext(1, 16000, 16000); const b = await tmp.decodeAudioData(ab); const oc = new OfflineAudioContext(1, Math.ceil(b.duration * 16000), 16000); const s = oc.createBufferSource(); s.buffer = b; s.connect(oc.destination); s.start(); return (await oc.startRendering()).getChannelData(0); };
+window.run = (urls) => { const job = window.job = { state: 'running', done: 0, total: urls.length, t0: Date.now() }; (async () => { try { for (const u of urls) { const x = await load16k(u); const r = await window.asr(x, { language: 'korean', task: 'transcribe', max_new_tokens: 48 }); window.out[u] = r.text.trim(); job.done++; await new Promise(r => setTimeout(r, 0)); } job.state = 'done'; job.secs = (Date.now() - job.t0) / 1000; } catch (e) { job.state = 'error'; job.err = String(e && e.stack || e); } })(); };
+window.__ready = true;
+</script>

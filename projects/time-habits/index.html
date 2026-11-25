@@ -1,0 +1,996 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>scene</title>
+<!--
+  시간 습관 5가지 — 손그림 화이트보드 장면 (2D canvas, 1920x1080, 30fps)
+  지켜야 할 구조 (AGENTS.md):
+    - renderAt(t) 하나가 화면 전체를 결정한다. 같은 t → 같은 프레임. Math.random / Date.now / 실시간 애니메이션 금지.
+    - 등장 시점은 전부 c(n, offset)로 정의한다(표 T). 효과음 큐 SFX도 같은 T에서 만든다.
+    - 선의 떨림은 요소 id로 시드를 정한 의사난수(mulberry32)로 만든다.
+  미리보기: ?t=12.5 로 특정 시점 확인, 아래 슬라이더로 이동. 프레임 시트: await sheet(undefined, 6, 320, 'projects/time-habits/qa/sheet.png')
+-->
+<style>
+  html, body { margin: 0; background: #111; color: #ddd; font: 13px system-ui, sans-serif; }
+  #out { display: block; max-width: 100%; max-height: calc(100vh - 40px); margin: 0 auto; }
+  #bar { display: flex; gap: 8px; align-items: center; height: 40px; padding: 0 12px; }
+  #bar input { flex: 1; }
+</style>
+<canvas id="out"></canvas>
+<div id="bar"><span id="tl">0.00s</span><input id="scrub" type="range" min="0" step="0.01" value="0"></div>
+<script src="timing.js" onerror="window.__noTiming = true"></script>
+<script src="/.claude/skills/reference-style-video/scripts/export.js"></script>
+<script type="module">
+// ───────── 규격 ─────────
+const W = 1920, H = 1080, FPS = 30;
+
+// ───────── 글꼴: 로드가 끝난 뒤에 첫 렌더 ─────────
+const FONT = 'Gaegu';
+for (const [file, weight] of [['Gaegu-Regular.ttf', '400'], ['Gaegu-Bold.ttf', '700']]) {
+  const f = new FontFace(FONT, `url(assets/fonts/${file})`, { weight });
+  await f.load(); document.fonts.add(f);
+}
+await document.fonts.ready;
+
+// ───────── 타이밍 ─────────
+if (!window.CAPS) {
+  const lines = await (await fetch('script.json')).json();
+  let t = 0.25;
+  window.CAPS = lines.map((l) => { t += l.pause || 0; const c = { id: l.id, text: l.text, start: +t.toFixed(3), dur: 1.8 }; t += 1.88; return c; });
+  window.CAPS.forEach((c, i, a) => { c.end = i < a.length - 1 ? a[i + 1].start - 0.04 : c.start + c.dur + 1.4; });
+  window.DUR = +(t + 1.8).toFixed(2);
+  window.PLACEHOLDER_TIMING = true;
+}
+const CAPS = window.CAPS, DUR = window.DUR;
+/** n번째 문장(1부터)의 시작 시각 + offset */
+const c = (n, offset = 0) => CAPS[Math.max(1, Math.min(n, CAPS.length)) - 1].start + offset;
+const SCRIPT = await (await fetch('script.json')).json();
+
+// ───────── 색 ─────────
+const INK = '#1d1d1d', RED = '#e2332b', YEL = '#f7cb2d', ORA = '#f39a2c', LORA = '#fbd7a3',
+  PAPER = '#fbfbf8', GRY = '#d3d3d3', DGRY = '#a9a9a9', TOM = '#e5523b', LEAF = '#5a9c3e', SKY = '#e3f1f8';
+
+// ───────── 캔버스 ─────────
+const out = document.getElementById('out'); out.width = W; out.height = H;
+const g = out.getContext('2d', { willReadFrequently: true });   // 항상 CPU 캔버스: 같은 t → 같은 픽셀
+
+// 배경: 밝은 회색 + 고정 비네트(한 번만 그린다)
+const BG = document.createElement('canvas'); BG.width = W; BG.height = H;
+{
+  const b = BG.getContext('2d');
+  b.fillStyle = '#ececec'; b.fillRect(0, 0, W, H);
+  const rg = b.createRadialGradient(W / 2, H * 0.48, H * 0.15, W / 2, H / 2, W * 0.62);
+  rg.addColorStop(0, 'rgba(255,255,255,0.45)'); rg.addColorStop(0.5, 'rgba(255,255,255,0.05)'); rg.addColorStop(1, 'rgba(0,0,0,0.13)');
+  b.fillStyle = rg; b.fillRect(0, 0, W, H);
+}
+
+// ───────── 결정적 의사난수 ─────────
+const hash = (s) => { let h = 2166136261 >>> 0; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
+const mulberry = (a) => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+let R = mulberry(1);
+const seed = (k) => { R = mulberry(hash(k)); };
+const jr = (a) => (R() * 2 - 1) * a;
+
+// ───────── 애니메이션 보조 ─────────
+const clamp = (x) => Math.max(0, Math.min(1, x));
+const pop = (t, at, d = 0.32) => { if (t < at) return 0; const x = clamp((t - at) / d); return 1 + 2.2 * Math.pow(x - 1, 3) + 1.2 * Math.pow(x - 1, 2); };
+let NOW = 0, SK = '';
+/** 요소: at 이후 (ax, ay)를 중심으로 빠르게 커졌다가 살짝 되돌아온다 */
+function E(key, at, ax, ay, fn) {
+  if (NOW < at) return;
+  const s = pop(NOW, at);
+  g.save(); g.translate(ax, ay); g.scale(s, s); g.translate(-ax, -ay);
+  seed(SK + '/' + key); fn(); g.restore();
+}
+/** 그려지는 선: at부터 dur 동안 p가 0→1 */
+function D(key, at, dur, fn) {
+  if (NOW < at) return;
+  seed(SK + '/' + key); fn(clamp((NOW - at) / dur));
+}
+
+// ───────── 손그림 기본 도형 ─────────
+function strokeSmooth(q, w, col, dash) {
+  g.lineWidth = w; g.strokeStyle = col; g.lineCap = 'round'; g.lineJoin = 'round';
+  if (dash) g.setLineDash(dash);
+  g.beginPath(); g.moveTo(q[0][0], q[0][1]);
+  if (q.length === 2) g.lineTo(q[1][0], q[1][1]);
+  for (let i = 1; i < q.length - 1; i++) {
+    const mx = (q[i][0] + q[i + 1][0]) / 2, my = (q[i][1] + q[i + 1][1]) / 2;
+    if (i === q.length - 2) g.quadraticCurveTo(q[i][0], q[i][1], q[i + 1][0], q[i + 1][1]);
+    else g.quadraticCurveTo(q[i][0], q[i][1], mx, my);
+  }
+  g.stroke(); if (dash) g.setLineDash([]);
+}
+/** 떨리는 꺾은선 */
+function wob(pts, { w = 6, col = INK, fill = null, close = false, j = 1.6, seg = 28, p = 1, dash = null } = {}) {
+  if (close) pts = [...pts, pts[0]];
+  const q = [];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [a, b] = pts[i], [x1, y1] = pts[i + 1];
+    const n = Math.max(1, Math.round(Math.hypot(x1 - a, y1 - b) / seg));
+    for (let k = 0; k < n; k++) { const u = k / n; q.push([a + (x1 - a) * u + jr(j), b + (y1 - b) * u + jr(j)]); }
+  }
+  const last = pts[pts.length - 1];
+  q.push(close ? q[0].slice() : [last[0] + jr(j), last[1] + jr(j)]);
+  if (fill) { g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath(); g.fillStyle = fill; g.fill(); }
+  if (!col || p <= 0) return;
+  const m = p >= 1 ? q.length : Math.max(2, Math.ceil(q.length * p));
+  strokeSmooth(q.slice(0, m), w, col, dash);
+}
+/** 떨리는 타원 (끝이 살짝 겹친다) */
+function ell(cx, cy, rx, ry, { w = 6, col = INK, fill = null, j = 1.4, p = 1 } = {}) {
+  if (fill) { g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); g.fillStyle = fill; g.fill(); }
+  const n = Math.max(14, Math.round((rx + ry) * Math.PI / 20)), a0 = R() * Math.PI * 2, sw = Math.PI * 2 + 0.16;
+  const q = []; for (let i = 0; i <= n; i++) { const a = a0 + sw * i / n; q.push([cx + Math.cos(a) * (rx + jr(j)), cy + Math.sin(a) * (ry + jr(j))]); }
+  if (!col || p <= 0) return;
+  strokeSmooth(q.slice(0, p >= 1 ? q.length : Math.max(2, Math.ceil(q.length * p))), w, col);
+}
+function rrPts(x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2); const pts = [];
+  const corner = (cx, cy, a0) => { for (let i = 0; i <= 3; i++) { const a = a0 + i / 3 * Math.PI / 2; pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]); } };
+  if (r <= 0) return [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+  corner(x + w - r, y + r, -Math.PI / 2); corner(x + w - r, y + h - r, 0); corner(x + r, y + h - r, Math.PI / 2); corner(x + r, y + r, Math.PI);
+  return pts;
+}
+function box(x, y, w, h, { r = 10, fill = null, w: lw = 5, col = INK, p = 1, dash = null, j = 1.4 } = {}) {
+  wob(rrPts(x, y, w, h, r), { close: true, fill, w: lw, col, p, dash, j, seg: 40 });
+}
+function line(x0, y0, x1, y1, o = {}) { wob([[x0, y0], [x1, y1]], o); }
+/** 글자 (Gaegu). \n으로 여러 줄 */
+function tx(s, x, y, { size = 56, col = INK, align = 'center', bold = true, rot = 0, maxW = 0, lh = 1.12 } = {}) {
+  const lines = String(s).split('\n');
+  g.save(); g.translate(x, y); if (rot) g.rotate(rot);
+  g.font = `${bold ? 700 : 400} ${size}px ${FONT}`; g.textAlign = align; g.textBaseline = 'middle'; g.fillStyle = col;
+  if (maxW) { const mw = Math.max(...lines.map((l) => g.measureText(l).width)); if (mw > maxW) g.scale(maxW / mw, maxW / mw); }
+  lines.forEach((l, i) => g.fillText(l, 0, (i - (lines.length - 1) / 2) * size * lh + size * 0.04));
+  g.restore();
+}
+const textW = (s, size, bold = true) => { g.font = `${bold ? 700 : 400} ${size}px ${FONT}`; return g.measureText(s).width; };
+/** 빨간 화살표 (휘어짐 bend) */
+function arrow(x0, y0, x1, y1, { col = RED, w = 10, bend = 0, head = 36, p = 1 } = {}) {
+  const dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy) || 1;
+  const cx = (x0 + x1) / 2 - dy / L * bend, cy = (y0 + y1) / 2 + dx / L * bend;
+  const B = (u) => [(1 - u) * (1 - u) * x0 + 2 * (1 - u) * u * cx + u * u * x1, (1 - u) * (1 - u) * y0 + 2 * (1 - u) * u * cy + u * u * y1];
+  const pts = []; const um = 1 - (head * 0.55) / L; for (let i = 0; i <= 16; i++) pts.push(B(um * i / 16));
+  wob(pts, { w, col, j: 1, seg: 1e4, p });
+  if (p < 1) return;
+  let tx0 = x1 - cx, ty0 = y1 - cy; const tl = Math.hypot(tx0, ty0) || 1; tx0 /= tl; ty0 /= tl;
+  const bx = x1 - tx0 * head, by = y1 - ty0 * head, nx = -ty0 * head * 0.55, ny = tx0 * head * 0.55;
+  g.beginPath(); g.moveTo(x1, y1); g.lineTo(bx + nx, by + ny); g.lineTo(bx - nx, by - ny); g.closePath();
+  g.fillStyle = col; g.lineJoin = 'round'; g.lineWidth = 4; g.strokeStyle = col; g.fill(); g.stroke();
+}
+function xmark(cx, cy, s, { w = 16, p = 1 } = {}) {
+  line(cx - s, cy - s, cx + s, cy + s, { col: RED, w, j: 1.5, seg: 60, p: Math.min(1, p * 2) });
+  if (p > 0.5) line(cx + s, cy - s, cx - s, cy + s, { col: RED, w, j: 1.5, seg: 60, p: (p - 0.5) * 2 });
+}
+function check(cx, cy, s, { col = ORA, w = 12 } = {}) { wob([[cx - s, cy], [cx - s * 0.3, cy + s * 0.7], [cx + s, cy - s * 0.8]], { col, w, seg: 400, j: 1 }); }
+/** 놀람·강조 표시 (짧은 선 세 개) */
+function ping(cx, cy, r, ang = -Math.PI / 2, { col = INK, w = 4 } = {}) {
+  for (const da of [-0.55, 0, 0.55]) { const a = ang + da; line(cx + Math.cos(a) * r, cy + Math.sin(a) * r, cx + Math.cos(a) * r * 1.6, cy + Math.sin(a) * r * 1.6, { w, col, seg: 100, j: 0.6 }); }
+}
+function sparkle(cx, cy, r, col = YEL) {
+  const pts = []; for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4 - Math.PI / 2, rr = i % 2 ? r * 0.38 : r; pts.push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr]); }
+  wob(pts, { close: true, fill: col, w: 3, seg: 100, j: 0.6 });
+}
+function ground(x, y, w) { line(x - w / 2, y, x + w / 2, y, { w: 4, seg: 60, j: 1.2 }); }
+function shadow(x, y, w) { g.fillStyle = 'rgba(0,0,0,0.06)'; g.beginPath(); g.ellipse(x, y + 4, w / 2, 12, 0, 0, Math.PI * 2); g.fill(); }
+
+// ───────── 말풍선·생각풍선·표지판·라벨 ─────────
+function bubble(cx, cy, w, h, tx0, ty0, text, { size = 54, fill = PAPER, col = INK } = {}) {
+  const x0 = cx - w / 2, y0 = cy - h / 2, dx = tx0 - cx, dy = ty0 - cy;
+  let b1, b2, i1, i2;
+  if (Math.abs(dy) / h >= Math.abs(dx) / w) {
+    const ey = dy > 0 ? y0 + h : y0, bx = Math.max(x0 + 50, Math.min(x0 + w - 50, cx + dx * 0.3)), s = dy > 0 ? -7 : 7;
+    b1 = [bx - 22, ey]; b2 = [bx + 22, ey]; i1 = [bx - 22, ey + s]; i2 = [bx + 22, ey + s];
+  } else {
+    const ex = dx > 0 ? x0 + w : x0, by = Math.max(y0 + 30, Math.min(y0 + h - 30, cy + dy * 0.3)), s = dx > 0 ? -7 : 7;
+    b1 = [ex, by - 18]; b2 = [ex, by + 18]; i1 = [ex + s, by - 18]; i2 = [ex + s, by + 18];
+  }
+  box(x0, y0, w, h, { fill, r: Math.min(46, h / 2.2), w: 4.5 });
+  g.beginPath(); g.moveTo(...i1); g.lineTo(tx0, ty0); g.lineTo(...i2); g.closePath(); g.fillStyle = fill; g.fill();
+  wob([b1, [tx0, ty0], b2], { w: 4.5, seg: 1e4, j: 0.8 });
+  if (text) tx(text, cx, cy, { size, col, maxW: w - 44 });
+}
+function thought(cx, cy, w, h, tx0, ty0, { fill = PAPER } = {}) {
+  const n = Math.max(8, Math.round((w + h) / 75)), br = Math.min(w, h) * 0.2;
+  const bumps = []; for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2 + 0.2; bumps.push([cx + Math.cos(a) * w / 2 * 0.86, cy + Math.sin(a) * h / 2 * 0.84, br * (0.9 + 0.2 * R())]); }
+  for (const [x, y, r] of bumps) ell(x, y, r, r, { fill, w: 4.5, j: 0.8 });
+  g.beginPath(); g.ellipse(cx, cy, w / 2 * 0.86, h / 2 * 0.84, 0, 0, Math.PI * 2); g.fillStyle = fill; g.fill();
+  const ux = tx0 - cx, uy = ty0 - cy, d = 1 / Math.sqrt((ux / (w / 2)) ** 2 + (uy / (h / 2)) ** 2);
+  const ex = cx + ux * d, ey = cy + uy * d;
+  [[0.35, 20], [0.65, 14], [0.92, 9]].forEach(([f, r]) => ell(ex + (tx0 - ex) * f, ey + (ty0 - ey) * f, r, r, { fill, w: 4, j: 0.5 }));
+}
+/** 노란 표지판 (ground가 있으면 기둥 두 개) */
+function sign(cx, cy, w, h, text, { fill = YEL, ground: gy = null, size = 70, col = INK, sub = null, subSize = 44 } = {}) {
+  if (gy != null) { for (const sx of [-0.28, 0.28]) line(cx + w * sx, cy + h / 2, cx + w * sx, gy, { w: 6, seg: 60 }); shadow(cx, gy, w * 0.8); }
+  box(cx - w / 2, cy - h / 2, w, h, { fill, r: 14, w: 5 });
+  if (text) tx(text, cx, sub ? cy - h * 0.14 : cy, { size, col, maxW: w - 50 });
+  if (sub) tx(sub, cx, cy + h * 0.24, { size: subSize, col, maxW: w - 50, bold: false });
+}
+/** 흰 이름표 */
+function tag(cx, cy, text, { size = 56, fill = PAPER, col = INK, padX = 34, h = null, rot = 0 } = {}) {
+  const w = textW(text.split('\n').reduce((a, b) => (a.length > b.length ? a : b)), size) + padX * 2, hh = h || size * 1.6 * text.split('\n').length;
+  g.save(); g.translate(cx, cy); g.rotate(rot);
+  box(-w / 2, -hh / 2, w, hh, { fill, r: 14, w: 4.5 }); tx(text, 0, 0, { size, col });
+  g.restore(); return w;
+}
+/** 노란 번호판 ("습관 1"), final이면 더 크고 주황 테두리 */
+function plate(cx, cy, text, { final = false } = {}) {
+  const size = final ? 92 : 66, w = textW(text, size) + (final ? 100 : 72), h = final ? 140 : 104;
+  g.save(); g.translate(cx, cy); g.rotate(final ? -0.025 : -0.04);
+  if (final) box(-w / 2 - 14, -h / 2 - 14, w + 28, h + 28, { fill: ORA, r: 24, w: 5 });
+  box(-w / 2, -h / 2, w, h, { fill: YEL, r: 16, w: 5 });
+  for (const [px, py] of [[-w / 2 + 16, -h / 2 + 16], [w / 2 - 16, -h / 2 + 16]]) { g.fillStyle = INK; g.beginPath(); g.arc(px, py, 4.5, 0, Math.PI * 2); g.fill(); }
+  tx(text, 0, 4, { size, col: final ? RED : INK });
+  g.restore();
+  if (final) { sparkle(cx - w / 2 - 50, cy - 40, 26, ORA); sparkle(cx + w / 2 + 50, cy - 30, 30, YEL); sparkle(cx + w / 2 + 34, cy + 50, 16, ORA); }
+}
+const plateW = (text) => textW(text, 66) + 72;
+
+// ───────── 졸라맨 ─────────
+const POSE = {
+  stand: { aL: [[-50, -290], [-76, -210]], aR: [[50, -290], [76, -210]], lL: [[-26, -100], [-46, 0]], lR: [[26, -100], [46, 0]] },
+  wave: { aR: [[88, -400], [118, -480]] },
+  point: { aR: [[88, -352], [172, -366]] },
+  pointUp: { aR: [[80, -410], [128, -478]] },
+  shrug: { aL: [[-84, -316], [-128, -380]], aR: [[84, -316], [128, -380]] },
+  cheer: { aL: [[-70, -430], [-112, -510]], aR: [[70, -430], [112, -510]] },
+  think: { aL: [[-44, -292], [24, -268]], aR: [[62, -300], [28, -392]] },
+  hold: { aL: [[-60, -296], [-24, -336]], aR: [[60, -296], [24, -336]] },
+  juggle: { aL: [[-92, -372], [-152, -432]], aR: [[92, -372], [152, -432]] },
+  tired: { aL: [[-32, -282], [-42, -190]], aR: [[32, -282], [42, -190]], head: [18, 16] },
+  run: { lean: 30, aL: [[-56, -304], [-104, -252]], aR: [[64, -302], [100, -372]], lL: [[-52, -104], [-122, -60]], lR: [[46, -98], [42, 0]] },
+  sit: { dy: 95, aL: [[-40, -288], [8, -210]], aR: [[40, -288], [70, -214]], lL: [[96, -100], [96, 0]], lR: [[108, -96], [118, 0]] },
+  sitWrite: { dy: 95, aL: [[34, -300], [112, -276]], aR: [[62, -300], [142, -282]], lL: [[96, -100], [96, 0]], lR: [[108, -96], [118, 0]] },
+  sitRelax: { dy: 95, aL: [[-78, -428], [-30, -478]], aR: [[78, -428], [30, -478]], lL: [[96, -100], [96, 0]], lR: [[108, -96], [118, 0]] },
+  sitCup: { dy: 95, aL: [[-40, -288], [8, -210]], aR: [[56, -296], [74, -362]], lL: [[96, -100], [96, 0]], lR: [[108, -96], [118, 0]] },
+  sitEat: { dy: 95, aL: [[34, -300], [112, -276]], aR: [[60, -310], [120, -330]], lL: [[96, -100], [96, 0]], lR: [[108, -96], [118, 0]] },
+};
+const HEAD_Y = -452, HEAD_R = 66;
+function poseOf(name) { return { ...POSE.stand, ...POSE[name] }; }
+/** 손 위치 (화면 좌표) */
+function handAt(x, y, o, side = 'R') {
+  const P = poseOf(o.pose || 'stand'), s = o.s || 1, f = o.flip ? -1 : 1, ln = P.lean || 0, dy = P.dy || 0;
+  const pt = side === 'R' ? P.aR[1] : P.aL[1];
+  return [x + f * s * (pt[0] + ln * 0.8), y + s * (pt[1] + dy)];
+}
+function headAt(x, y, o) {
+  const P = poseOf(o.pose || 'stand'), s = o.s || 1, f = o.flip ? -1 : 1, hd = P.head || [0, 0];
+  return [x + f * s * ((P.lean || 0) + hd[0]), y + s * (HEAD_Y + (P.dy || 0) + hd[1])];
+}
+function face(cx, cy, r, kind, look, lw) {
+  const ex = r * 0.32, ey = -r * 0.06, er = r * 0.085, mx = cx + look, o = { w: lw, seg: 100, j: 0.5 };
+  const dot = (x, y, rr = er) => { g.fillStyle = INK; g.beginPath(); g.ellipse(x, y, rr, rr * 1.25, 0, 0, Math.PI * 2); g.fill(); };
+  if (kind === 'tired') { line(mx - ex - 10, cy + ey, mx - ex + 10, cy + ey + 3, o); line(mx + ex - 10, cy + ey + 3, mx + ex + 10, cy + ey, o); }
+  else if (kind === 'big') { wob([[mx - ex - 10, cy + ey + 4], [mx - ex, cy + ey - 8], [mx - ex + 10, cy + ey + 4]], o); wob([[mx + ex - 10, cy + ey + 4], [mx + ex, cy + ey - 8], [mx + ex + 10, cy + ey + 4]], o); }
+  else if (kind === 'surprise') { dot(mx - ex, cy + ey, er * 1.2); dot(mx + ex, cy + ey, er * 1.2); }
+  else { dot(mx - ex, cy + ey); dot(mx + ex, cy + ey); }
+  const my = cy + r * 0.38;
+  if (kind === 'smile') { wob([[mx - r * 0.3, my - 6], [mx - r * 0.12, my + 6], [mx + r * 0.12, my + 6], [mx + r * 0.3, my - 6]], { ...o, seg: 1e4 }); }
+  else if (kind === 'big') { g.beginPath(); g.moveTo(mx - r * 0.32, my - 10); g.quadraticCurveTo(mx, my + r * 0.42, mx + r * 0.32, my - 10); g.closePath(); g.fillStyle = INK; g.fill(); }
+  else if (kind === 'sad') { wob([[mx - r * 0.26, my + 8], [mx, my - 6], [mx + r * 0.26, my + 8]], { ...o, seg: 1e4 }); }
+  else if (kind === 'worry' || kind === 'tired') { wob([[mx - r * 0.28, my + 4], [mx - r * 0.12, my - 4], [mx, my + 4], [mx + r * 0.14, my - 4], [mx + r * 0.28, my + 4]], { ...o, seg: 1e4 }); }
+  else if (kind === 'surprise') { ell(mx, my + 2, r * 0.12, r * 0.16, { w: lw * 0.9, j: 0.3 }); }
+  else if (kind === 'focus' || kind === 'neutral') { line(mx - r * 0.2, my, mx + r * 0.2, my, o); }
+  if (kind === 'worry' || kind === 'sad' || kind === 'tired') { line(mx - ex - 14, cy + ey - 26, mx - ex + 10, cy + ey - 34, o); line(mx + ex + 14, cy + ey - 26, mx + ex - 10, cy + ey - 34, o); }
+  if (kind === 'focus') { line(mx - ex - 14, cy + ey - 32, mx - ex + 12, cy + ey - 22, o); line(mx + ex + 14, cy + ey - 32, mx + ex - 12, cy + ey - 22, o); }
+  if (kind === 'surprise') { line(mx - ex - 12, cy + ey - 34, mx - ex + 12, cy + ey - 38, o); line(mx + ex - 12, cy + ey - 38, mx + ex + 12, cy + ey - 34, o); }
+}
+function drop(x, y, s = 1) {
+  g.beginPath(); g.moveTo(x, y - 18 * s); g.bezierCurveTo(x + 14 * s, y, x + 12 * s, y + 12 * s, x, y + 12 * s); g.bezierCurveTo(x - 12 * s, y + 12 * s, x - 14 * s, y, x, y - 18 * s);
+  g.fillStyle = SKY; g.fill(); g.lineWidth = 3.5; g.strokeStyle = INK; g.stroke();
+}
+/** 졸라맨: (x, y)는 발이 닿는 바닥 */
+function fig(x, y, o = {}) {
+  const { s = 1, pose = 'stand', face: fk = 'smile', look = 0, flip = false, sweat = false, hair = true, shade = true } = o;
+  const P = poseOf(pose), dy = P.dy || 0, ln = P.lean || 0, hd = P.head || [0, 0];
+  if (shade) shadow(x + (P.dy ? (flip ? -1 : 1) * 60 * s : 0), y, 170 * s);
+  g.save(); g.translate(x, y); g.scale(flip ? -s : s, s);
+  const lw = (s >= 0.6 ? 6 : s >= 0.35 ? 4.4 : 3.4) / s, jj = 1.3 / s, O = { w: lw, j: jj, seg: 34 };
+  const HC = [ln + hd[0], HEAD_Y + dy + hd[1]], NECK = [ln * 0.9 + hd[0] * 0.6, HC[1] + HEAD_R - 2], SH = [ln * 0.8, -352 + dy], HIP = [0, -198 + dy];
+  wob([NECK, SH, HIP], O);
+  const A = (pt) => [pt[0] + ln * 0.8, pt[1] + dy];
+  wob([SH, A(P.aL[0]), A(P.aL[1])], O); wob([SH, A(P.aR[0]), A(P.aR[1])], O);
+  const LG = (pt) => [pt[0], pt[1] + (dy && pt === P.lL[1] || dy && pt === P.lR[1] ? 0 : 0)];
+  wob([HIP, LG(P.lL[0]), LG(P.lL[1])], O); wob([HIP, LG(P.lR[0]), LG(P.lR[1])], O);
+  // 발 끝 (작은 가로선)
+  for (const [lg, d] of [[P.lL, -1], [P.lR, 1]]) { const [fx, fy] = lg[1]; if (fy > -20) line(fx, fy, fx + (pose.startsWith('sit') ? 26 : d * 24), fy, { ...O, seg: 100 }); }
+  ell(HC[0], HC[1], HEAD_R, HEAD_R, { w: lw, j: jj, fill: null });
+  // 얼굴은 뒤집지 않는다(표정은 대칭)
+  face(HC[0], HC[1], HEAD_R, fk, look, lw * 0.9);
+  if (hair) wob([[HC[0] - 20, HC[1] - HEAD_R + 2], [HC[0] - 6, HC[1] - HEAD_R - 14], [HC[0] + 10, HC[1] - HEAD_R + 1]], { ...O, w: lw * 0.85, seg: 100 });
+  g.restore();
+  if (sweat) { const [hx, hy] = headAt(x, y, o); drop(hx + (flip ? -1 : 1) * s * 92, hy - s * 10, Math.max(0.6, s)); drop(hx - (flip ? -1 : 1) * s * 88, hy + s * 6, Math.max(0.5, s * 0.8)); }
+}
+
+// ───────── 소품 ─────────
+function tomato(cx, cy, r, { label = null } = {}) {
+  ell(cx, cy + r * 0.04, r * 1.08, r, { fill: TOM, w: 5.5 });
+  g.save(); g.globalAlpha = 0.5; ell(cx - r * 0.45, cy - r * 0.42, r * 0.16, r * 0.1, { fill: '#fff', col: null }); g.restore();
+  for (let i = -4; i <= 4; i++) line(cx + i * r * 0.17, cy + r * 0.08, cx + i * r * 0.17, cy + r * (i % 2 ? 0.17 : 0.24), { w: 3.5, col: '#fff', seg: 100, j: 0.4 });
+  g.beginPath(); g.moveTo(cx - 10, cy - r * 0.02); g.lineTo(cx + 10, cy - r * 0.02); g.lineTo(cx, cy + r * 0.1); g.closePath(); g.fillStyle = INK; g.fill();
+  const lp = []; for (let i = 0; i < 10; i++) { const a = i * Math.PI / 5 - Math.PI / 2, rr = i % 2 ? r * 0.12 : r * 0.34; lp.push([cx + Math.cos(a) * rr * 1.2, cy - r * 0.9 + Math.sin(a) * rr * 0.5]); }
+  wob(lp, { close: true, fill: LEAF, w: 4, seg: 100, j: 0.6 });
+  line(cx, cy - r * 0.92, cx + 8, cy - r * 1.15, { w: 5, seg: 100 });
+  if (label) tx(label, cx, cy + r * 0.55, { size: r * 0.42, col: '#fff' });
+}
+function clock(cx, cy, r, { h = 10, m = 10, fill = PAPER, w = 5.5 } = {}) {
+  ell(cx, cy, r, r, { fill, w });
+  for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; line(cx + Math.cos(a) * r * 0.8, cy + Math.sin(a) * r * 0.8, cx + Math.cos(a) * r * 0.9, cy + Math.sin(a) * r * 0.9, { w: i % 3 ? 3 : 5, seg: 100, j: 0.3 }); }
+  const ha = ((h % 12) + m / 60) / 12 * Math.PI * 2 - Math.PI / 2, ma = m / 60 * Math.PI * 2 - Math.PI / 2;
+  line(cx, cy, cx + Math.cos(ha) * r * 0.48, cy + Math.sin(ha) * r * 0.48, { w: w + 1, seg: 100, j: 0.5 });
+  line(cx, cy, cx + Math.cos(ma) * r * 0.72, cy + Math.sin(ma) * r * 0.72, { w, seg: 100, j: 0.5 });
+  g.fillStyle = INK; g.beginPath(); g.arc(cx, cy, 6, 0, Math.PI * 2); g.fill();
+}
+function alarm(cx, cy, r, o = {}) {
+  for (const sx of [-1, 1]) { ell(cx + sx * r * 0.62, cy - r * 0.86, r * 0.3, r * 0.22, { fill: ORA, w: 4.5 }); line(cx + sx * r * 0.6, cy + r * 0.86, cx + sx * r * 0.8, cy + r * 1.12, { w: 5, seg: 100 }); }
+  clock(cx, cy, r, o);
+  for (const sx of [-1, 1]) for (const k of [0, 1]) line(cx + sx * (r * 1.2 + k * 18), cy - r * 0.5 + k * 24, cx + sx * (r * 1.38 + k * 18), cy - r * 0.62 + k * 24, { w: 4, seg: 100 });
+}
+function stopwatch(cx, cy, r, { frac = 0.33, over = 0, label = null, size = null } = {}) {
+  box(cx - r * 0.16, cy - r * 1.28, r * 0.32, r * 0.2, { fill: DGRY, r: 4, w: 4.5 });
+  line(cx, cy - r * 1.08, cx, cy - r * 0.98, { w: 7, seg: 100 });
+  ell(cx, cy, r, r, { fill: PAPER, w: 6 });
+  if (over > 0) { g.save(); g.globalAlpha = 0.55; g.beginPath(); g.moveTo(cx, cy); g.arc(cx, cy, r * 0.88, -Math.PI / 2, -Math.PI / 2 + over * Math.PI * 2); g.closePath(); g.fillStyle = RED; g.fill(); g.restore(); }
+  for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; line(cx + Math.cos(a) * r * 0.82, cy + Math.sin(a) * r * 0.82, cx + Math.cos(a) * r * 0.92, cy + Math.sin(a) * r * 0.92, { w: 3.5, seg: 100, j: 0.3 }); }
+  const a = frac * Math.PI * 2 - Math.PI / 2; line(cx, cy, cx + Math.cos(a) * r * 0.74, cy + Math.sin(a) * r * 0.74, { w: 6, col: over > 0 ? RED : INK, seg: 100, j: 0.4 });
+  g.fillStyle = INK; g.beginPath(); g.arc(cx, cy, 7, 0, Math.PI * 2); g.fill();
+  if (label) tx(label, cx, cy + r * 0.45, { size: size || r * 0.36 });
+}
+function paper(cx, cy, w, h, { rot = 0, lines = 4, title = null, fill = PAPER, size = null } = {}) {
+  g.save(); g.translate(cx, cy); g.rotate(rot);
+  box(-w / 2, -h / 2, w, h, { fill, r: 4, w: 4.5 });
+  const top = title ? -h / 2 + h * 0.32 : -h / 2 + h * 0.2;
+  if (title) tx(title, 0, -h / 2 + h * 0.17, { size: size || Math.min(w * 0.28, 56), maxW: w - 20 });
+  for (let i = 0; i < lines; i++) { const yy = top + i * (h * 0.62 / Math.max(lines, 1)) + 8; line(-w * 0.34, yy, w * (i === lines - 1 ? 0.12 : 0.34), yy, { w: 3, seg: 60, j: 0.6 }); }
+  g.restore();
+}
+function sticky(cx, cy, w, h, text, { rot = 0, fill = YEL, size = 48 } = {}) {
+  g.save(); g.translate(cx, cy); g.rotate(rot);
+  box(-w / 2, -h / 2, w, h, { fill, r: 3, w: 4 });
+  g.fillStyle = 'rgba(0,0,0,0.08)'; g.fillRect(-w / 2 + 4, -h / 2 + 4, w - 8, 14);
+  tx(text, 0, 6, { size, maxW: w - 24 });
+  g.restore();
+}
+function calendar(cx, cy, w, h, { head = '', big = '', headFill = RED, size = null } = {}) {
+  box(cx - w / 2, cy - h / 2, w, h, { fill: PAPER, r: 10, w: 5 });
+  box(cx - w / 2, cy - h / 2, w, h * 0.28, { fill: headFill, r: 10, w: 5 });
+  for (const sx of [-0.25, 0.25]) line(cx + w * sx, cy - h / 2 - 16, cx + w * sx, cy - h / 2 + 18, { w: 7, seg: 100 });
+  tx(head, cx, cy - h / 2 + h * 0.14, { size: h * 0.15, col: '#fff', maxW: w - 30 });
+  tx(big, cx, cy + h * 0.14, { size: size || h * 0.38, maxW: w - 30 });
+}
+function book(cx, cy, w, { fill = PAPER } = {}) {
+  const h = w * 0.55;
+  wob([[cx, cy - h * 0.36], [cx - w / 2, cy - h * 0.5], [cx - w / 2, cy + h * 0.38], [cx, cy + h * 0.5]], { close: true, fill, w: 5, seg: 60 });
+  wob([[cx, cy - h * 0.36], [cx + w / 2, cy - h * 0.5], [cx + w / 2, cy + h * 0.38], [cx, cy + h * 0.5]], { close: true, fill, w: 5, seg: 60 });
+  for (let i = 0; i < 3; i++) for (const sx of [-1, 1]) line(cx + sx * w * 0.1, cy - h * 0.18 + i * h * 0.2, cx + sx * w * 0.4, cy - h * 0.25 + i * h * 0.2, { w: 3, seg: 100 });
+}
+function cup(cx, cy, s = 1, { steam = true } = {}) {
+  box(cx - 34 * s, cy - 44 * s, 68 * s, 80 * s, { fill: PAPER, r: 8 * s, w: 5 });
+  ell(cx + 44 * s, cy - 4 * s, 16 * s, 20 * s, { w: 5, j: 0.6 });
+  if (steam) for (const dx of [-14, 12]) wob([[cx + dx * s, cy - 56 * s], [cx + (dx + 8) * s, cy - 72 * s], [cx + dx * s, cy - 88 * s], [cx + (dx + 8) * s, cy - 104 * s]], { w: 3.5, seg: 1e4, j: 0.5 });
+}
+function bowl(cx, cy, s = 1) {
+  ell(cx, cy - 20 * s, 70 * s, 34 * s, { fill: PAPER, w: 4.5, j: 0.6 });
+  g.beginPath(); g.moveTo(cx - 80 * s, cy - 10 * s); g.quadraticCurveTo(cx, cy + 100 * s, cx + 80 * s, cy - 10 * s); g.closePath(); g.fillStyle = ORA; g.fill();
+  wob([[cx - 80 * s, cy - 10 * s], [cx - 50 * s, cy + 36 * s], [cx, cy + 46 * s], [cx + 50 * s, cy + 36 * s], [cx + 80 * s, cy - 10 * s], [cx - 80 * s, cy - 10 * s]], { w: 5, seg: 1e4, j: 0.6 });
+  for (const dx of [-20, 18]) wob([[cx + dx * s, cy - 60 * s], [cx + (dx + 8) * s, cy - 78 * s], [cx + dx * s, cy - 96 * s]], { w: 3.5, seg: 1e4, j: 0.5 });
+}
+function desk(x0, x1, top, gy) {
+  box(x0, top, x1 - x0, 18, { fill: '#e2d2bb', r: 4, w: 5 });
+  line(x0 + 22, top + 18, x0 + 22, gy, { w: 5.5, seg: 60 }); line(x1 - 22, top + 18, x1 - 22, gy, { w: 5.5, seg: 60 });
+}
+function chair(cx, seatY, gy, { back = -1 } = {}) {
+  line(cx - 60, seatY, cx + 60, seatY, { w: 6, seg: 60 });
+  line(cx - 50, seatY, cx - 50, gy, { w: 5, seg: 60 }); line(cx + 50, seatY, cx + 50, gy, { w: 5, seg: 60 });
+  line(cx + back * 60, seatY, cx + back * 66, seatY - 150, { w: 6, seg: 60 });
+}
+function laptop(cx, top, s = 1) {
+  wob([[cx - 70 * s, top], [cx + 70 * s, top]], { w: 6, seg: 100 });
+  wob([[cx + 50 * s, top], [cx + 20 * s, top - 100 * s], [cx - 60 * s, top - 100 * s], [cx - 30 * s, top]], { close: false, fill: '#dfe6ea', w: 5, seg: 100 });
+}
+function sofa(cx, gy, w = 420) {
+  box(cx - w / 2, gy - 260, w, 150, { fill: LORA, r: 24, w: 5 });
+  box(cx - w / 2 + 20, gy - 150, w - 40, 70, { fill: LORA, r: 16, w: 5 });
+  for (const sx of [-1, 1]) box(cx + sx * (w / 2) - (sx > 0 ? 40 : 0) - (sx < 0 ? 20 : -20), gy - 180, 60, 110, { fill: LORA, r: 16, w: 5 });
+  line(cx - w / 2 + 40, gy - 80, cx - w / 2 + 40, gy, { w: 6, seg: 60 }); line(cx + w / 2 - 40, gy - 80, cx + w / 2 - 40, gy, { w: 6, seg: 60 });
+}
+function lamp(cx, top) {
+  ell(cx, top - 6, 40, 10, { fill: DGRY, w: 4.5, j: 0.4 });
+  wob([[cx, top - 10], [cx - 30, top - 120], [cx + 30, top - 190]], { w: 5.5, seg: 100 });
+  g.save(); g.globalAlpha = 0.35; g.beginPath(); g.moveTo(cx + 10, top - 170); g.lineTo(cx + 200, top); g.lineTo(cx - 40, top); g.closePath(); g.fillStyle = YEL; g.fill(); g.restore();
+  wob([[cx - 10, top - 210], [cx + 70, top - 190], [cx + 40, top - 140], [cx - 30, top - 165]], { close: true, fill: YEL, w: 5, seg: 100 });
+}
+function moon(cx, cy, r) {
+  g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.arc(cx + r * 0.45, cy - r * 0.3, r * 0.82, 0, Math.PI * 2, true); g.fillStyle = YEL; g.fill('evenodd');
+  g.lineWidth = 4.5; g.strokeStyle = INK; g.stroke();
+}
+function sun(cx, cy, r) {
+  for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; line(cx + Math.cos(a) * r * 1.25, cy + Math.sin(a) * r * 1.25, cx + Math.cos(a) * r * 1.6, cy + Math.sin(a) * r * 1.6, { w: 5, col: ORA, seg: 100, j: 0.5 }); }
+  ell(cx, cy, r, r, { fill: YEL, w: 5 });
+}
+function bulb(cx, cy, r) {
+  ell(cx, cy, r, r * 1.05, { fill: YEL, w: 4.5, j: 0.6 });
+  box(cx - r * 0.42, cy + r * 0.95, r * 0.84, r * 0.5, { fill: DGRY, r: 4, w: 4 });
+  ping(cx, cy, r * 1.35, -Math.PI / 2, { w: 4 }); ping(cx, cy, r * 1.35, -Math.PI / 2 - 1.3, { w: 4 }); ping(cx, cy, r * 1.35, -Math.PI / 2 + 1.3, { w: 4 });
+}
+function battery(cx, cy, w, h, level, col) {
+  box(cx - w / 2, cy - h / 2, w, h, { fill: PAPER, r: 8, w: 5 });
+  box(cx + w / 2, cy - h * 0.2, 12, h * 0.4, { fill: INK, r: 2, w: 3 });
+  const iw = (w - 20) * level; g.fillStyle = col; g.fillRect(cx - w / 2 + 10, cy - h / 2 + 10, iw, h - 20);
+}
+function target(cx, cy, r) {
+  [[1, RED], [0.72, PAPER], [0.45, RED], [0.2, PAPER]].forEach(([k, f]) => ell(cx, cy, r * k, r * k, { fill: f, w: 4.5, j: 0.6 }));
+  line(cx + r * 0.9, cy - r * 0.9, cx + 4, cy - 4, { w: 7, seg: 100 });
+  wob([[cx + r * 0.9, cy - r * 0.9], [cx + r * 1.1, cy - r * 0.85], [cx + r * 1.05, cy - r * 1.05], [cx + r * 0.85, cy - r * 1.1]], { close: true, fill: ORA, w: 4, seg: 100 });
+}
+function phone(cx, cy, w, h) {
+  box(cx - w / 2, cy - h / 2, w, h, { fill: '#444', r: 12, w: 4.5 });
+  g.fillStyle = SKY; g.fillRect(cx - w / 2 + 9, cy - h / 2 + 16, w - 18, h - 34);
+}
+function flask(cx, cy, s = 1) {
+  wob([[cx - 16 * s, cy - 60 * s], [cx - 16 * s, cy - 20 * s], [cx - 54 * s, cy + 50 * s], [cx + 54 * s, cy + 50 * s], [cx + 16 * s, cy - 20 * s], [cx + 16 * s, cy - 60 * s]], { fill: PAPER, w: 4.5, seg: 1e4 });
+  g.beginPath(); g.moveTo(cx - 36 * s, cy + 16 * s); g.lineTo(cx + 36 * s, cy + 16 * s); g.lineTo(cx + 52 * s, cy + 48 * s); g.lineTo(cx - 52 * s, cy + 48 * s); g.closePath(); g.fillStyle = ORA; g.fill();
+}
+function checklist(cx, cy, s = 1) {
+  paper(cx, cy, 170 * s, 220 * s, { lines: 0 });
+  for (let i = 0; i < 3; i++) { const y = cy - 60 * s + i * 60 * s; box(cx - 62 * s, y - 16 * s, 32 * s, 32 * s, { r: 3, w: 4, fill: PAPER }); line(cx - 12 * s, y, cx + 60 * s, y, { w: 4, seg: 100 }); if (i < 2) check(cx - 44 * s, y - 2 * s, 18 * s, { w: 7 }); }
+}
+function flag(cx, gy, h = 300) {
+  line(cx, gy, cx, gy - h, { w: 7, seg: 80 });
+  wob([[cx, gy - h], [cx + 90, gy - h + 20], [cx + 170, gy - h - 6], [cx + 160, gy - h + 80], [cx + 80, gy - h + 100], [cx, gy - h + 90]], { close: true, fill: ORA, w: 5, seg: 1e4 });
+  shadow(cx, gy, 90);
+}
+function easel(cx, cy, w, h, gy) {
+  line(cx - w * 0.35, cy + h / 2, cx - w * 0.45, gy, { w: 6, seg: 60 }); line(cx + w * 0.35, cy + h / 2, cx + w * 0.45, gy, { w: 6, seg: 60 });
+  line(cx, cy + h / 2, cx, gy - 30, { w: 6, seg: 60 }); shadow(cx, gy, w * 0.9);
+  box(cx - w / 2, cy - h / 2, w, h, { fill: PAPER, r: 8, w: 5.5 });
+}
+function stackPapers(cx, gy, n, w = 160) {
+  for (let i = 0; i < n; i++) { const y = gy - 26 - i * 26; box(cx - w / 2 + jr(10), y, w, 26, { fill: i % 3 === 1 ? '#f3efe4' : PAPER, r: 3, w: 4 }); }
+}
+function envelope(cx, cy, w, h) {
+  box(cx - w / 2, cy - h / 2, w, h, { fill: PAPER, r: 4, w: 4.5 });
+  wob([[cx - w / 2 + 4, cy - h / 2 + 4], [cx, cy + h * 0.1], [cx + w / 2 - 4, cy - h / 2 + 4]], { w: 4, seg: 1e4 });
+}
+function windowFrame(cx, cy, w, h) {
+  box(cx - w / 2, cy - h / 2, w, h, { fill: '#dfe3ec', r: 6, w: 6 });
+  line(cx, cy - h / 2, cx, cy + h / 2, { w: 5, seg: 60 }); line(cx - w / 2, cy, cx + w / 2, cy, { w: 5, seg: 60 });
+}
+/** 4칸 표 (급함/중요함) */
+const CELL_TXT = { TL: '급하고\n중요', TR: '중요하지만\n안 급한', BL: '급하기만\n한 일', BR: '둘 다\n아님' };
+function matrix(cx, cy, w, h, { p = 1, hl = null, urgent = false, cells = true, hdr = true, size = 50, hdrSize = 52 } = {}) {
+  const x0 = cx - w / 2, y0 = cy - h / 2;
+  if (p >= 1) { g.fillStyle = PAPER; g.fillRect(x0, y0, w, h); }
+  if (urgent) { g.fillStyle = LORA; g.fillRect(x0, y0, w / 2, h); }
+  if (hl === 'TR') { g.fillStyle = YEL; g.fillRect(cx, y0, w / 2, h / 2); }
+  box(x0, y0, w, h, { p, w: 6, r: 6 });
+  line(cx, y0, cx, y0 + h, { p, w: 6, seg: 50 }); line(x0, cy, x0 + w, cy, { p, w: 6, seg: 50 });
+  if (hdr && p >= 1) {
+    tx('급함', x0 + w / 4, y0 - hdrSize * 0.75, { size: hdrSize }); tx('안 급함', x0 + w * 3 / 4, y0 - hdrSize * 0.75, { size: hdrSize });
+    tx('중요함', x0 - 22, y0 + h / 4, { size: hdrSize, align: 'right' }); tx('안 중요함', x0 - 22, y0 + h * 3 / 4, { size: hdrSize, align: 'right' });
+  }
+  if (cells && p >= 1) {
+    const pos = { TL: [x0 + w / 4, y0 + h / 4], TR: [x0 + w * 3 / 4, y0 + h / 4], BL: [x0 + w / 4, y0 + h * 3 / 4], BR: [x0 + w * 3 / 4, y0 + h * 3 / 4] };
+    for (const k in pos) tx(CELL_TXT[k], pos[k][0], pos[k][1], { size, maxW: w / 2 - 30, col: k === 'BR' ? '#777' : INK });
+  }
+}
+/** 하루 칸 나누기 표 */
+function dayTable(x, y, w, h, { rows, p = 1, lab = 150, size = 46, head = null } = {}) {
+  const top = head ? y + 90 : y, rh = (y + h - top) / rows.length;
+  if (p >= 1) { g.fillStyle = PAPER; g.fillRect(x, y, w, h); }
+  box(x, y, w, h, { p, w: 6, r: 8 });
+  if (head) { if (p >= 1) { g.fillStyle = YEL; g.fillRect(x + 3, y + 3, w - 6, 87); } line(x, top, x + w, top, { p, w: 5, seg: 50 }); if (p >= 1) tx(head, x + w / 2, y + 47, { size: 58 }); }
+  line(x + lab, top, x + lab, y + h, { p, w: 5, seg: 50 });
+  for (let i = 1; i < rows.length; i++) line(x, top + i * rh, x + w, top + i * rh, { p, w: 3.5, seg: 50, dash: null });
+  if (p >= 1) rows.forEach((r, i) => tx(r, x + lab / 2, top + (i + 0.5) * rh, { size, maxW: lab - 16 }));
+  return (i) => ({ x: x + lab + 14, y: top + i * rh + 10, w: w - lab - 28, h: rh - 20, cx: x + lab + (w - lab) / 2, cy: top + (i + 0.5) * rh });
+}
+function block(r, text, fill = LORA, size = 48) { box(r.x, r.y, r.w, r.h, { fill, r: 10, w: 4.5 }); tx(text, r.cx, r.cy, { size, maxW: r.w - 20 }); }
+/** 만약 / 그러면 카드 */
+function ifCard(cx, cy, w, h, head, body, fill) {
+  box(cx - w / 2, cy - h / 2, w, h, { fill: PAPER, r: 16, w: 5.5 });
+  g.fillStyle = fill; g.fillRect(cx - w / 2 + 4, cy - h / 2 + 4, w - 8, h * 0.32);
+  line(cx - w / 2, cy - h / 2 + h * 0.32 + 4, cx + w / 2, cy - h / 2 + h * 0.32 + 4, { w: 5, seg: 60 });
+  tx(head, cx, cy - h / 2 + h * 0.18, { size: h * 0.17 });
+  tx(body, cx, cy + h * 0.17, { size: h * 0.15, maxW: w - 40 });
+}
+
+// ───────── 장면 표: 각 장면의 T(등장 시점)와 효과음 큐는 c(n)으로만 정한다 ─────────
+// sfx: [종류, T의 키, 추가 offset, 볼륨]
+const GY = 930;
+const SCENES = [];
+const scene = (n, T, sfx, draw) => SCENES.push({ n, key: 's' + String(n).padStart(2, '0'), T, sfx, draw });
+const card = (n, at = c(n)) => SCENES.push({ n, key: 's' + String(n).padStart(2, '0'), card: true, T: { cut: c(n), text: at }, sfx: [['pencil', 'text']] });
+
+card(1, c(1, -0.2));
+card(2);
+
+scene(3, { cut: c(3), fig: c(3), sign: c(3, 0.4), nums: c(3, 1.4) }, [['whoosh', 'cut'], ['pop', 'sign'], ['pop', 'nums']], (k) => {
+  E('fig', k.fig, 470, GY, () => fig(470, GY, { pose: 'point', face: 'smile' }));
+  E('sign', k.sign, 1220, 470, () => { sign(1220, 470, 760, 300, null, { ground: GY }); tx('시간을 잘 쓰는 습관', 1220, 395, { size: 70 }); });
+  for (let i = 0; i < 5; i++) { const x = 1220 + (i - 2) * 118; E('n' + i, k.nums + i * 0.13, x, 520, () => { ell(x, 520, 40, 40, { fill: PAPER, w: 5 }); tx(String(i + 1), x, 522, { size: 58, col: RED }); }); }
+});
+
+scene(4, { cut: c(4), fig: c(4), items: c(4, 0.45), tag: c(4, 1.2) }, [['whoosh', 'cut'], ['pop', 'items'], ['pop', 'tag']], (k) => {
+  E('fig', k.fig, 960, GY, () => { fig(960, GY, { pose: 'juggle', face: 'worry', sweat: true }); ping(960, 470, 110, -Math.PI / 2); });
+  E('i0', k.items, 800, 360, () => paper(800, 360, 120, 150, { rot: -0.3, lines: 3 }));
+  E('i1', k.items + 0.12, 1130, 340, () => clock(1130, 340, 66, { h: 8, m: 50 }));
+  E('i2', k.items + 0.24, 660, 560, () => phone(660, 560, 80, 140));
+  E('i3', k.items + 0.36, 1270, 560, () => paper(1270, 560, 120, 150, { rot: 0.25, lines: 3 }));
+  E('tag', k.tag, 420, 260, () => { tag(420, 260, '늘 바쁜 친구', { size: 60 }); arrow(470, 320, 860, 440, { bend: 70 }); });
+});
+
+scene(5, { cut: c(5), fig: c(5), clock: c(5, 0.35), plan: c(5, 0.8), x: c(5, 1.4) }, [['whoosh', 'cut'], ['pop', 'clock'], ['pop', 'x']], (k) => {
+  E('fig', k.fig, 820, GY, () => { fig(820, GY, { pose: 'run', face: 'worry', sweat: true });
+    for (let i = 0; i < 3; i++) line(560 - i * 20, 560 + i * 70, 660 - i * 20, 560 + i * 70, { w: 5, seg: 100 }); });
+  E('clock', k.clock, 1420, 420, () => { alarm(1420, 420, 160, { h: 9, m: 25 }); });
+  E('plan', k.plan, 330, 330, () => paper(330, 330, 270, 330, { title: '계획', lines: 4, rot: -0.05 }));
+  D('x', k.x, 0.3, (p) => xmark(330, 340, 120, { p }));
+});
+
+scene(6, { cut: c(6), fig: c(6), book: c(6, 0.25), sign: c(6, 0.85) }, [['whoosh', 'cut'], ['pop', 'sign']], (k) => {
+  E('fig', k.fig, 540, GY, () => fig(540, GY, { pose: 'think', face: 'worry' }));
+  E('book', k.book, 400, 260, () => { book(400, 280, 210); tx('심리학', 400, 175, { size: 52 }); });
+  E('sign', k.sign, 1250, 470, () => sign(1250, 470, 700, 290, '계획 오류', { ground: GY, size: 110, sub: 'planning fallacy', subSize: 46 }));
+});
+
+scene(7, { cut: c(7), fig: c(7), bubble: c(7, 0.35), st: c(7, 0.9), paper: c(7, 1.6) }, [['whoosh', 'cut'], ['pop', 'bubble'], ['pop', 'st']], (k) => {
+  E('fig', k.fig, 380, GY, () => fig(380, GY, { pose: 'point', face: 'smile' }));
+  E('bubble', k.bubble, 560, 260, () => bubble(600, 250, 420, 140, 440, 400, '며칠 걸릴까?'));
+  [1130, 1390, 1650].forEach((x, i) => E('st' + i, k.st + i * 0.14, x, GY, () => {
+    fig(x, GY, { s: 0.8, pose: 'hold', face: ['neutral', 'smile', 'neutral'][i], look: -6 });
+    paper(x, GY - 272, 96, 116, { title: '논문', lines: 2, size: 34 });
+  }));
+  E('q', k.paper, 1390, 290, () => { tx('?', 1300, 300, { size: 110 }); tx('?', 1480, 260, { size: 80 }); });
+});
+
+scene(8, { cut: c(8), fig: c(8), bubble: c(8, 0.35), cal: c(8, 0.95) }, [['whoosh', 'cut'], ['pop', 'cal']], (k) => {
+  E('fig', k.fig, 500, GY, () => fig(500, GY, { pose: 'pointUp', face: 'smile' }));
+  E('bubble', k.bubble, 1180, 400, () => thought(1180, 400, 760, 480, 620, 430));
+  E('cal', k.cal, 1180, 410, () => { calendar(1070, 410, 300, 290, { head: '예상', big: '34일' }); tx('평균', 1340, 410, { size: 80 }); });
+});
+
+scene(9, { cut: c(9), fig: c(9), b1: c(9, 0.2), b2: c(9, 0.6), arrow: c(9, 1.2) }, [['whoosh', 'cut'], ['pop', 'b2'], ['pop', 'arrow']], (k) => {
+  const base = 860;
+  E('axis', k.b1, 800, base, () => ground(820, base, 820));
+  E('fig', k.fig, 1520, GY, () => fig(1520, GY, { pose: 'shrug', face: 'sad', sweat: true }));
+  E('b1', k.b1, 570, base, () => { box(470, base - 340, 200, 340, { fill: GRY, r: 4, w: 5 }); tx('34일', 570, base - 385, { size: 64 }); tx('예상', 570, base + 50, { size: 58 }); });
+  E('b2', k.b2, 920, base, () => { box(820, base - 560, 200, 560, { fill: ORA, r: 4, w: 5 }); tx('56일', 920, base - 605, { size: 72 }); tx('실제', 920, base + 50, { size: 58 }); });
+  E('arrow', k.arrow, 740, 400, () => arrow(640, 440, 800, 300, { bend: -50 }));
+});
+
+scene(10, { cut: c(10), fig: c(10), bars: c(10, 0.2), worst: c(10, 0.8), more: c(10, 1.7) }, [['whoosh', 'cut'], ['pencil', 'worst'], ['pop', 'more']], (k) => {
+  const base = 860;
+  E('fig', k.fig, 1610, GY, () => fig(1610, GY, { pose: 'shrug', face: 'surprise' }));
+  E('bars', k.bars, 800, base, () => {
+    ground(820, base, 900);
+    box(400, base - 340, 180, 340, { fill: GRY, r: 4, w: 5 }); tx('예상', 490, base + 50, { size: 54 }); tx('34일', 490, base - 380, { size: 56 });
+    box(680, base - 486, 180, 486, { fill: DGRY, r: 4, w: 5 }); tx('최악 예상', 770, base + 50, { size: 54 });
+    box(960, base - 560, 180, 560, { fill: ORA, r: 4, w: 5 }); tx('실제', 1050, base + 50, { size: 54 }); tx('56일', 1050, base - 600, { size: 60 });
+  });
+  D('worst', k.worst, 0.5, (p) => line(380, base - 486, 380 + 840 * p, base - 486, { col: RED, w: 6, dash: [18, 14], seg: 80 }));
+  E('more', k.more, 1260, 330, () => { arrow(1190, base - 490, 1190, base - 556, { head: 26, w: 8 }); tag(1300, 250, '더 길다!', { size: 58, col: RED }); });
+});
+
+scene(11, { cut: c(11), crowd: c(11), hl: c(11, 0.8), pct: c(11, 0.9), bubble: c(11, 2.0) }, [['whoosh', 'cut'], ['pop', 'pct'], ['pop', 'bubble']], (k) => {
+  const HL = new Set([0, 2, 4, 6, 9, 10, 13, 15, 18, 19, 21, 23]);
+  E('crowd', k.crowd, 600, 600, () => {
+    for (let i = 0; i < 25; i++) {
+      const x = 300 + (i % 5) * 150, y = 330 + Math.floor(i / 5) * 150, lit = NOW >= k.hl && HL.has(i);
+      if (lit) { g.fillStyle = 'rgba(243,154,44,0.55)'; g.beginPath(); g.arc(x, y - 112, 34, 0, Math.PI * 2); g.fill(); }
+      fig(x, y, { s: 0.24, face: lit ? 'worry' : 'smile', shade: false, hair: false });
+    }
+  });
+  E('pct', k.pct, 1400, 440, () => { tx('미국인', 1400, 260, { size: 72 }); tx('48%', 1400, 440, { size: 240, col: ORA }); line(1230, 560, 1580, 560, { w: 8, col: INK, seg: 60 }); });
+  E('bubble', k.bubble, 1400, 750, () => bubble(1440, 760, 560, 150, 1060, 800, '시간이 모자라!', { size: 66 }));
+});
+
+scene(12, { cut: c(12), fig: c(12), q: c(12, 0.4) }, [['whoosh', 'cut'], ['pop', 'q']], (k) => {
+  E('fig', k.fig, 960, GY, () => fig(960, GY, { pose: 'think', face: 'worry' }));
+  E('q0', k.q, 740, 330, () => tx('?', 740, 330, { size: 170 }));
+  E('q1', k.q + 0.18, 1190, 290, () => tx('?', 1190, 290, { size: 130, col: RED }));
+  E('q2', k.q + 0.36, 1260, 520, () => tx('?', 1260, 520, { size: 90 }));
+});
+
+card(13);
+
+const P1 = 70 + plateW('습관 1') / 2;
+scene(14, { cut: c(14), figL: c(14), plate: c(14, 0.25), tom: c(14, 0.5), arrow: c(14, 1.2), figR: c(14, 1.4), clk: c(14, 1.7) }, [['ding', 'plate'], ['pop', 'tom'], ['pop', 'figR']], (k) => {
+  const gy = 860;
+  E('plate', k.plate, P1, 110, () => plate(P1, 110, '습관 1'));
+  E('figL', k.figL, 430, gy, () => { chair(430, gy - 95, gy); desk(530, 800, gy - 190, gy); fig(430, gy, { pose: 'sitWrite', face: 'focus' }); laptop(680, gy - 190); });
+  E('tom', k.tom, 600, 330, () => tomato(600, 330, 100));
+  E('labL', k.tom, 600, 960, () => tx('25분 일하기', 600, 975, { size: 66 }));
+  E('arrow', k.arrow, 990, 600, () => arrow(900, 600, 1090, 600));
+  E('figR', k.figR, 1380, gy, () => { chair(1380, gy - 95, gy); fig(1380, gy, { pose: 'sitCup', face: 'smile' }); const [hx, hy] = handAt(1380, gy, { pose: 'sitCup' }); cup(hx + 10, hy + 20, 0.8); });
+  E('clk', k.clk, 1400, 330, () => clock(1400, 330, 90, { h: 12, m: 5 }));
+  E('labR', k.clk, 1420, 960, () => tx('5분 쉬기', 1420, 975, { size: 66 }));
+});
+
+scene(15, { cut: c(15), fig: c(15), tag: c(15, 0.3), bulb: c(15, 1.5) }, [['whoosh', 'cut'], ['pop', 'tag']], (k) => {
+  E('fig', k.fig, 720, GY, () => { fig(720, GY, { pose: 'wave', face: 'big' }); const [hx, hy] = handAt(720, GY, { pose: 'wave' }); tomato(hx - 160, hy + 280, 52); });
+  E('tag', k.tag, 1310, 360, () => { tag(1320, 360, '프란체스코 시릴로', { size: 70 }); arrow(1150, 440, 830, 520, { bend: -60 }); });
+  E('bulb', k.bulb, 720, 270, () => bulb(720, 250, 42));
+});
+
+scene(16, { cut: c(16), tom: c(16), arrow: c(16, 0.6), t1: c(16, 0.8), t2: c(16, 1.3) }, [['whoosh', 'cut'], ['pop', 't1'], ['pop', 't2']], (k) => {
+  E('tom', k.tom, 620, 560, () => { tomato(620, 570, 230); shadow(620, 820, 380); });
+  E('arrow', k.arrow, 980, 500, () => arrow(900, 520, 1080, 470, { bend: -30 }));
+  E('t1', k.t1, 1390, 420, () => tx('뽀모도로', 1400, 420, { size: 130 }));
+  E('t2', k.t2, 1390, 590, () => { tx('= 토마토', 1400, 580, { size: 100, col: RED }); tx('(이탈리아어)', 1400, 690, { size: 54, col: '#666', bold: false }); });
+});
+
+scene(17, { cut: c(17), fig: c(17), line: c(17, 0.3), circ: c(17, 1.0), tag: c(17, 1.7) }, [['whoosh', 'cut'], ['pencil', 'circ'], ['pop', 'tag']], (k) => {
+  const segs = [[420, '일 25분', PAPER], [230, '쉼 5분', LORA], [420, '일 25분', PAPER], [230, '쉼 5분', LORA]];
+  E('fig', k.fig, 1680, GY, () => fig(1680, GY, { pose: 'point', face: 'smile', flip: true }));
+  E('line', k.line, 800, 560, () => { let x = 150; for (const [w, t, f] of segs) { box(x, 480, w, 160, { fill: f, r: 6, w: 5 }); tx(t, x + w / 2, 560, { size: 56 }); x += w; } });
+  D('circ', k.circ, 0.6, (p) => { ell(150 + 420 + 115, 560, 150, 125, { col: RED, w: 7, p }); ell(150 + 420 * 2 + 230 + 115, 560, 150, 125, { col: RED, w: 7, p }); });
+  E('tag', k.tag, 1000, 320, () => tag(1030, 320, '쉬는 시간도 미리!', { size: 64, fill: YEL }));
+});
+
+scene(18, { cut: c(18), figs: c(18), lab: c(18, 0.2), names: c(18, 0.9), bat: c(18, 1.8) }, [['whoosh', 'cut'], ['pop', 'names'], ['pop', 'bat']], (k) => {
+  const gy = 840;
+  E('figL', k.figs, 620, gy, () => fig(620, gy, { pose: 'cheer', face: 'big' }));
+  E('figR', k.figs + 0.1, 1300, gy, () => fig(1300, gy, { pose: 'tired', face: 'tired', sweat: true }));
+  E('lab', k.lab, 960, 110, () => { flask(820, 110, 0.9); tx('실험', 960, 110, { size: 72 }); });
+  E('names', k.names, 960, 930, () => { tx('정해 쉰 쪽', 620, 945, { size: 64 }); tx('알아서 쉰 쪽', 1300, 945, { size: 64 }); });
+  E('bat', k.bat, 960, 250, () => { battery(620 + 170, 330, 150, 76, 0.9, ORA); battery(1300 + 180, 330, 150, 76, 0.2, RED); });
+});
+
+scene(19, { cut: c(19), fig: c(19), bub: c(19, 0.3), x: c(19, 0.9), tgt: c(19, 1.7) }, [['whoosh', 'cut'], ['pop', 'x'], ['pop', 'tgt']], (k) => {
+  E('fig', k.fig, 760, GY, () => { chair(760, GY - 95, GY); desk(860, 1160, GY - 190, GY); fig(760, GY, { pose: 'sitWrite', face: 'focus' }); book(1010, GY - 215, 170); });
+  E('bub', k.bub, 470, 330, () => { thought(470, 320, 400, 270, 690, 470); phone(420, 320, 70, 120); tx('딴생각', 540, 320, { size: 46 }); });
+  D('x', k.x, 0.3, (p) => xmark(470, 320, 90, { p }));
+  E('tgt', k.tgt, 1480, 420, () => { target(1480, 400, 130); tx('집중', 1480, 610, { size: 72 }); });
+});
+
+scene(20, { cut: c(20), fig: c(20), tom: c(20, 0.2), arrow: c(20, 0.9), bub: c(20, 1.9) }, [['whoosh', 'cut'], ['pop', 'arrow'], ['pop', 'bub']], (k) => {
+  E('fig', k.fig, 1350, GY, () => fig(1350, GY, { pose: 'point', face: 'smile', flip: true }));
+  E('tom', k.tom, 720, 560, () => { tomato(720, 560, 210); shadow(720, 790, 360); });
+  E('arrow', k.arrow, 720, 260, () => { arrow(520, 330, 900, 290, { bend: -110 }); tag(720, 890, '25분', { size: 70, fill: YEL }); });
+  E('bub', k.bub, 1450, 290, () => bubble(1480, 270, 300, 140, 1380, 420, '시작!', { size: 70 }));
+});
+
+scene(21, { cut: c(21), tom: c(21), four: c(21, 0.7), arrow: c(21, 1.5), fig: c(21, 1.7), tag: c(21, 2.2) }, [['whoosh', 'cut'], ['pop', 'fig'], ['pop', 'tag']], (k) => {
+  for (let i = 0; i < 4; i++) { const x = 250 + i * 190; E('t' + i, k.tom + i * 0.15, x, 520, () => { tomato(x, 520, 72); check(x, 660, 34, { col: ORA }); }); }
+  E('four', k.four, 535, 300, () => tag(535, 300, '4번', { size: 70, fill: YEL }));
+  E('arrow', k.arrow, 1060, 520, () => arrow(980, 520, 1150, 520));
+  E('fig', k.fig, 1480, GY, () => { sofa(1480, GY, 440); fig(1420, GY - 40, { pose: 'sitRelax', face: 'smile', shade: false, s: 0.95 }); tx('z', 1600, 430, { size: 60 }); tx('z', 1650, 380, { size: 80 }); });
+  E('tag', k.tag, 1480, 240, () => tag(1480, 240, '더 길게 쉬기', { size: 66 }));
+});
+
+card(22);
+
+const P2 = 70 + plateW('습관 2') / 2;
+scene(23, { cut: c(23), fig: c(23), plate: c(23, 0.25), watch: c(23, 0.6), bub: c(23, 1.4) }, [['ding', 'plate'], ['pop', 'watch'], ['pop', 'bub']], (k) => {
+  E('plate', k.plate, P2, 110, () => plate(P2, 110, '습관 2'));
+  E('fig', k.fig, 1000, GY, () => { fig(1000, GY, { pose: 'hold', face: 'smile' }); envelope(1000, GY - 330, 130, 86); for (let i = 0; i < 3; i++) line(1110 + i * 8, GY - 400 + i * 40, 1160 + i * 8, GY - 410 + i * 40, { w: 4, seg: 100 }); });
+  E('watch', k.watch, 520, 520, () => stopwatch(520, 520, 170, { frac: 0.33, label: '2분', size: 74 }));
+  E('bub', k.bub, 1380, 330, () => { bubble(1390, 320, 360, 150, 1090, 470, '바로!', { size: 80 }); check(1500, 320, 34, { w: 10 }); });
+});
+
+scene(24, { cut: c(24), fig: c(24), name: c(24, 0.25), sign: c(24, 1.0) }, [['whoosh', 'cut'], ['pop', 'name'], ['pop', 'sign']], (k) => {
+  E('fig', k.fig, 640, GY, () => fig(640, GY, { pose: 'point', face: 'smile' }));
+  E('name', k.name, 640, 300, () => tag(640, 300, '데이비드 앨런', { size: 66 }));
+  E('sign', k.sign, 1300, 480, () => { sign(1300, 480, 640, 260, '2분 규칙', { ground: GY, size: 120 }); });
+});
+
+scene(25, { cut: c(25), fig: c(25), pile: c(25, 0.3), loop: c(25, 1.0), bub: c(25, 1.7) }, [['whoosh', 'cut'], ['pop', 'pile'], ['pop', 'bub']], (k) => {
+  const top = GY - 220;
+  E('fig', k.fig, 600, GY, () => fig(600, GY, { pose: 'think', face: 'worry' }));
+  E('pile', k.pile, 1180, top, () => {
+    desk(900, 1460, top, GY);
+    [[1080, -0.15, '나중에'], [1260, 0.1, '나중에'], [1170, -0.03, '할 일']].forEach(([x, r, t], i) => sticky(x, top - 70 - i * 40, 190, 130, t, { rot: r, fill: i === 2 ? LORA : YEL, size: 44 }));
+  });
+  D('loop', k.loop, 0.6, (p) => { ell(1180, 370, 150, 95, { col: RED, w: 7, p: p * 0.92 }); if (p >= 1) arrow(1028, 386, 1034, 345, { head: 30, w: 6 }); });
+  E('bub', k.bub, 560, 260, () => bubble(560, 250, 430, 140, 600, 400, '이거 뭐였지?', { size: 60 }));
+});
+
+scene(26, { cut: c(26), fig: c(26), watch: c(26, 0.2), over: c(26, 1.3) }, [['whoosh', 'cut'], ['pop', 'over']], (k) => {
+  E('fig', k.fig, 1500, GY, () => fig(1500, GY, { pose: 'shrug', face: 'surprise', sweat: true }));
+  E('watch', k.watch, 820, 500, () => { const lit = NOW >= k.over; stopwatch(820, 500, 250, { frac: lit ? 0.42 : 0.3, over: lit ? 0.42 : 0, label: '2분', size: 84 }); });
+  E('over', k.over, 820, 900, () => { tx('벌써 2분 넘음!', 820, 900, { size: 80, col: RED }); ping(1080, 260, 40, -0.8, { w: 5 }); });
+});
+
+scene(27, { cut: c(27), fig: c(27), sign: c(27, 0.5), sub: c(27, 1.4) }, [['whoosh', 'cut'], ['pop', 'sign']], (k) => {
+  E('fig', k.fig, 640, GY, () => fig(640, GY, { pose: 'shrug', face: 'smile' }));
+  E('sign', k.sign, 1300, 440, () => sign(1300, 440, 640, 300, '약 2분', { ground: GY, size: 120 }));
+  E('sub', k.sub, 1300, 720, () => tag(1300, 700, '대략적인 기준', { size: 60, fill: PAPER }));
+});
+
+card(28);
+
+const P3 = 70 + plateW('습관 3') / 2;
+scene(29, { cut: c(29), fig: c(29), plate: c(29, 0.25), sL: c(29, 0.6), sR: c(29, 1.3) }, [['ding', 'plate'], ['pop', 'sL'], ['pop', 'sR']], (k) => {
+  E('plate', k.plate, P3, 110, () => plate(P3, 110, '습관 3'));
+  E('fig', k.fig, 960, GY, () => { fig(960, GY, { pose: 'hold', face: 'neutral' }); stackPapers(960, GY - 300, 4, 140); });
+  E('sL', k.sL, 450, 470, () => { sign(450, 470, 460, 180, '급한가?', { ground: GY, size: 80 }); alarm(450, 290, 56, { h: 2, m: 45 }); });
+  E('sR', k.sR, 1470, 470, () => { sign(1470, 470, 480, 180, '중요한가?', { ground: GY, size: 80 }); sparkle(1470, 290, 64, ORA); });
+});
+
+scene(30, { cut: c(30), fig: c(30), grid: c(30, 0.15), hdr: c(30, 1.0) }, [['whoosh', 'cut'], ['pencil', 'grid']], (k) => {
+  E('fig', k.fig, 1690, GY, () => fig(1690, GY, { pose: 'point', face: 'smile', flip: true }));
+  D('grid', k.grid, 0.8, (p) => matrix(930, 580, 820, 640, { p, hdr: false, cells: false }));
+  E('hdr', k.hdr, 930, 580, () => matrix(930, 580, 820, 640, { p: 1 }));
+});
+
+scene(31, { cut: c(31), fig: c(31), tag: c(31, 0.25), easel: c(31, 0.8) }, [['whoosh', 'cut'], ['pop', 'tag']], (k) => {
+  E('fig', k.fig, 500, GY, () => fig(500, GY, { pose: 'wave', face: 'smile' }));
+  E('tag', k.tag, 500, 300, () => tag(500, 300, '스티븐 코비', { size: 66 }));
+  E('easel', k.easel, 1260, 500, () => { easel(1260, 470, 720, 560, GY); matrix(1310, 500, 500, 380, { size: 34, hdrSize: 36 }); });
+});
+
+scene(32, { cut: c(32), fig: c(32), mx: c(32, 0.15), urg: c(32, 0.9), arrow: c(32, 1.5) }, [['whoosh', 'cut'], ['pop', 'urg'], ['pop', 'arrow']], (k) => {
+  E('fig', k.fig, 1600, GY, () => fig(1600, GY, { pose: 'point', face: 'worry', flip: true, sweat: true }));
+  E('mx', k.mx, 780, 580, () => matrix(780, 580, 760, 600, { urgent: NOW >= k.urg, size: 46 }));
+  E('urg', k.urg, 590, 230, () => { alarm(360, 210, 46, { h: 1, m: 55 }); });
+  E('arrow', k.arrow, 1100, 300, () => arrow(1420, 560, 600, 410, { bend: 150 }));
+});
+
+scene(33, { cut: c(33), fig: c(33), mx: c(33, 0.1), hl: c(33, 0.7), circ: c(33, 1.5), tag: c(33, 2.0) }, [['whoosh', 'cut'], ['pencil', 'circ'], ['pop', 'tag']], (k) => {
+  E('fig', k.fig, 1690, GY, () => fig(1690, GY, { pose: 'point', face: 'big', flip: true }));
+  E('mx', k.mx, 860, 580, () => matrix(860, 580, 820, 640, { hl: NOW >= k.hl ? 'TR' : null }));
+  D('circ', k.circ, 0.5, (p) => ell(1065, 420, 250, 190, { col: RED, w: 8, p }));
+  E('tag', k.tag, 1520, 240, () => { tag(1560, 230, '핵심!', { size: 80, col: RED, fill: YEL }); sparkle(1690, 150, 26, ORA); });
+});
+
+scene(34, { cut: c(34), head: c(34), a: c(34), b: c(34, 0.65), cc: c(34, 1.25) }, [['whoosh', 'cut'], ['pop', 'b'], ['pop', 'cc']], (k) => {
+  E('head', k.head, 960, 170, () => sign(960, 170, 760, 130, '중요하지만 안 급한 일', { size: 66 }));
+  const items = [['a', 480, '준비', () => checklist(480, 520, 1.1)], ['b', 960, '공부', () => book(960, 520, 300)], ['cc', 1440, '휴식', () => { cup(1440, 540, 1.6); }]];
+  for (const [key, x, label, draw] of items) E(key, k[key], x, 600, () => { ell(x, 520, 190, 190, { fill: PAPER, w: 5 }); draw(); tx(label, x, 820, { size: 84 }); });
+});
+
+scene(35, { cut: c(35), fig: c(35), mx: c(35, 0.15), arrow: c(35, 0.9), tag: c(35, 1.7) }, [['whoosh', 'cut'], ['pop', 'arrow'], ['pop', 'tag']], (k) => {
+  E('mx', k.mx, 720, 580, () => matrix(720, 590, 700, 560, { hl: 'TR', size: 42, hdrSize: 46 }));
+  E('fig', k.fig, 1560, GY, () => { fig(1560, GY, { pose: 'hold', face: 'smile' }); box(1460, GY - 400, 200, 110, { fill: ORA, r: 10, w: 5 }); tx('시간', 1560, GY - 345, { size: 60 }); });
+  E('arrow', k.arrow, 1250, 330, () => arrow(1440, 500, 1010, 400, { bend: 80 }));
+  E('tag', k.tag, 1560, 280, () => tag(1560, 260, '먼저!', { size: 80, col: RED, fill: YEL }));
+});
+
+card(36);
+
+const P4 = 70 + plateW('습관 4') / 2;
+const ROWS = ['아침', '오전', '점심', '오후', '저녁'];
+scene(37, { cut: c(37), fig: c(37), plate: c(37, 0.25), grid: c(37, 0.6), blk: c(37, 1.3) }, [['ding', 'plate'], ['pencil', 'grid'], ['pop', 'blk']], (k) => {
+  E('plate', k.plate, P4, 110, () => plate(P4, 110, '습관 4'));
+  E('fig', k.fig, 420, GY, () => fig(420, GY, { pose: 'point', face: 'smile' }));
+  let cell = null;
+  D('grid', k.grid, 0.6, (p) => { cell = dayTable(760, 150, 820, 800, { rows: ROWS, p }); });
+  const B = [['운동', YEL], ['보고서', LORA], ['밥', PAPER], ['회의', LORA], ['공부', YEL]];
+  if (cell) B.forEach(([t, f], i) => { const r = cell(i); E('b' + i, k.blk + i * 0.22, r.cx, r.cy, () => block(r, t, f, 54)); });
+});
+
+scene(38, { cut: c(38), fig: c(38), name: c(38, 0.2), board: c(38, 1.0) }, [['whoosh', 'cut'], ['pop', 'name'], ['pop', 'board']], (k) => {
+  E('fig', k.fig, 600, GY, () => { chair(600, GY - 95, GY); desk(700, 1000, GY - 190, GY); fig(600, GY, { pose: 'sitWrite', face: 'focus' }); paper(860, GY - 205, 170, 40, { lines: 0 }); });
+  E('name', k.name, 620, 330, () => tag(620, 330, '칼 뉴포트', { size: 70 }));
+  E('board', k.board, 1400, 460, () => { const cell = dayTable(1150, 160, 520, 620, { rows: ['', '', '', ''], lab: 60, head: '시간 블록' }); [[0, YEL], [1, LORA], [3, LORA]].forEach(([i, f]) => block(cell(i), '', f)); });
+});
+
+scene(39, { cut: c(39), fig: c(39), bub: c(39, 0.35), txt: c(39, 0.65) }, [['whoosh', 'cut'], ['pop', 'bub']], (k) => {
+  E('fig', k.fig, 560, GY, () => fig(560, GY, { pose: 'think', face: 'neutral' }));
+  E('bub', k.bub, 1200, 390, () => thought(1200, 390, 760, 460, 680, 440));
+  E('txt', k.txt, 1200, 400, () => { tx('뉴포트', 1200, 330, { size: 80 }); tx('본인의 추정', 1200, 450, { size: 80, col: ORA }); });
+});
+
+scene(40, { cut: c(40), left: c(40), arrow: c(40, 0.9), right: c(40, 1.3), spark: c(40, 2.0) }, [['whoosh', 'cut'], ['pop', 'right'], ['pop', 'spark']], (k) => {
+  E('left', k.left, 500, 860, () => {
+    ground(500, 860, 420); for (let i = 0; i < 4; i++) box(370, 860 - (i + 1) * 92, 260, 86, { fill: i % 2 ? YEL : LORA, r: 8, w: 5 });
+    tx('40시간', 500, 930, { size: 74 }); tx('시간 블록', 500, 430, { size: 56, col: '#555' });
+  });
+  E('arrow', k.arrow, 900, 600, () => arrow(720, 620, 1080, 620, { w: 12, head: 44 }));
+  E('right', k.right, 1400, 860, () => {
+    ground(1400, 860, 520);
+    for (let i = 0; i < 6; i++) for (let j = 0; j < (i < 3 ? 3 : i < 5 ? 2 : 1); j++) { const bw = 130; const x = 1400 - ((i < 3 ? 3 : i < 5 ? 2 : 1) * bw) / 2 + j * bw; box(x + 4, 860 - (i + 1) * 86, bw - 8, 80, { fill: '#e2d2bb', r: 6, w: 4.5 }); }
+    tx('60시간 넘는 몫', 1400, 930, { size: 70 });
+  });
+  E('spark', k.spark, 1400, 300, () => { sparkle(1260, 300, 34, YEL); sparkle(1560, 280, 26, ORA); sparkle(1600, 400, 18, YEL); });
+});
+
+scene(41, { cut: c(41), fig: c(41), win: c(41, 0.2), tag: c(41, 1.0) }, [['whoosh', 'cut'], ['pop', 'tag']], (k) => {
+  E('fig', k.fig, 640, GY, () => { chair(640, GY - 95, GY); desk(740, 1120, GY - 190, GY); lamp(1040, GY - 190); fig(640, GY, { pose: 'sitWrite', face: 'focus' }); paper(880, GY - 205, 170, 40, { lines: 0 }); });
+  E('win', k.win, 1500, 330, () => { windowFrame(1500, 330, 440, 340); moon(1420, 250, 50); sparkle(1600, 230, 16, YEL); sparkle(1580, 420, 12, YEL); sparkle(1380, 400, 12, YEL); tx('전날 밤', 1500, 560, { size: 62 }); });
+  E('tag', k.tag, 760, 300, () => { clock(560, 300, 66, { h: 10, m: 15 }); tag(800, 300, '10~20분', { size: 76, fill: YEL }); });
+});
+
+const PLAN = ['아침', '오전', '점심', '오후', '저녁'];
+const PLAN_B = [['운동', YEL], ['보고서', LORA], ['밥', PAPER], ['회의', LORA], ['공부', YEL]];
+scene(42, { cut: c(42), fig: c(42), plan: c(42, 0.2), blk: c(42, 0.75) }, [['whoosh', 'cut'], ['pencil', 'blk']], (k) => {
+  E('fig', k.fig, 420, GY, () => { fig(420, GY, { pose: 'point', face: 'smile' }); const [hx, hy] = handAt(420, GY, { pose: 'point' }); line(hx - 6, hy + 4, hx + 50, hy - 40, { w: 10, col: ORA, seg: 100 }); });
+  let cell = null;
+  E('plan', k.plan, 1150, 540, () => { cell = dayTable(760, 130, 800, 830, { rows: PLAN, head: '내일' }); });
+  if (cell) PLAN_B.forEach(([t, f], i) => { const r = cell(i); E('b' + i, k.blk + i * 0.3, r.cx, r.cy, () => block(r, t, f, 54)); });
+});
+
+scene(43, { cut: c(43), fig: c(43), plan: c(43, 0.1), x: c(43, 0.6), redo: c(43, 1.5), bub: c(43, 2.1) }, [['whoosh', 'cut'], ['pop', 'x'], ['pop', 'redo']], (k) => {
+  let cell = null;
+  E('plan', k.plan, 760, 540, () => { cell = dayTable(380, 130, 720, 830, { rows: PLAN, head: '내일' }); PLAN_B.forEach(([t, f], i) => block(cell(i), t, f, 54)); });
+  D('x', k.x, 0.3, (p) => xmark(815, 130 + 90 + (830 - 90) / 5 * 1.5, 70, { p }));
+  E('redo', k.redo, 1260, 520, () => { arrow(1000, 400, 1180, 560, { bend: -60 }); box(1180, 560, 240, 110, { fill: LORA, r: 10, w: 4.5 }); tx('보고서', 1300, 615, { size: 54 }); tx('오후로!', 1300, 720, { size: 50, col: RED }); });
+  E('fig', k.fig, 1640, GY, () => fig(1640, GY, { pose: 'pointUp', face: 'smile', flip: true }));
+  E('bub', k.bub, 1600, 240, () => bubble(1580, 240, 420, 140, 1640, 420, '다시 짜면 돼!', { size: 60 }));
+});
+
+card(44);
+
+scene(45, { cut: c(45), plate: c(45, 0.25), L: c(45, 0.6), arrow: c(45, 1.2), Rc: c(45, 1.45) }, [['ding', 'plate'], ['pop', 'L'], ['pop', 'Rc']], (k) => {
+  E('plate', k.plate, 960, 150, () => plate(960, 150, '마지막 습관', { final: true }));
+  E('L', k.L, 560, 600, () => ifCard(560, 600, 560, 360, '만약', '이 상황이면', YEL));
+  E('arrow', k.arrow, 960, 600, () => arrow(870, 600, 1050, 600, { w: 12, head: 44 }));
+  E('Rc', k.Rc, 1360, 600, () => ifCard(1360, 600, 560, 360, '그러면', '이걸 한다', ORA));
+});
+
+scene(46, { cut: c(46), figL: c(46), tagL: c(46, 0.3), arrow: c(46, 1.1), figR: c(46, 1.3), tagR: c(46, 1.6) }, [['whoosh', 'cut'], ['pop', 'figR'], ['pop', 'tagR']], (k) => {
+  E('figL', k.figL, 430, GY, () => { chair(430, GY - 95, GY); desk(530, 790, GY - 190, GY); fig(430, GY, { pose: 'sitEat', face: 'big' }); bowl(680, GY - 200, 0.9); });
+  E('tagL', k.tagL, 520, 260, () => tag(520, 250, '만약: 밥을 먹으면', { size: 58, fill: YEL }));
+  E('arrow', k.arrow, 960, 600, () => arrow(880, 620, 1060, 620, { w: 12, head: 44 }));
+  E('figR', k.figR, 1360, GY, () => { chair(1360, GY - 95, GY); desk(1460, 1720, GY - 190, GY); fig(1360, GY, { pose: 'sitWrite', face: 'focus' }); book(1610, GY - 215, 180); });
+  E('tagR', k.tagR, 1460, 260, () => tag(1460, 250, '그러면: 책을 편다', { size: 58, fill: LORA }));
+});
+
+scene(47, { cut: c(47), fig: c(47), sL: c(47, 0.2), sR: c(47, 0.6), q: c(47, 1.4) }, [['whoosh', 'cut'], ['pop', 'sR'], ['pop', 'q']], (k) => {
+  E('fig', k.fig, 960, GY, () => fig(960, GY, { pose: 'shrug', face: 'worry' }));
+  E('sL', k.sL, 400, 470, () => sign(400, 470, 440, 170, '시간 블록', { ground: GY, size: 70 }));
+  E('sR', k.sR, 1520, 470, () => sign(1520, 470, 480, 170, '만약-그러면', { ground: GY, size: 70, fill: LORA }));
+  E('q', k.q, 960, 290, () => { tx('?', 900, 290, { size: 150, col: RED }); tx('?', 1040, 250, { size: 100 }); });
+});
+
+scene(48, { cut: c(48), fig: c(48), head: c(48, 0.2), task: c(48, 0.5), arrow: c(48, 1.2), clk: c(48, 1.4) }, [['whoosh', 'cut'], ['pop', 'task'], ['pop', 'clk']], (k) => {
+  E('fig', k.fig, 1650, GY, () => fig(1650, GY, { pose: 'point', face: 'smile', flip: true }));
+  E('head', k.head, 760, 150, () => sign(760, 150, 440, 120, '시간 블록', { size: 70 }));
+  E('task', k.task, 420, 560, () => paper(420, 560, 260, 320, { title: '할 일', lines: 4 }));
+  E('arrow', k.arrow, 720, 560, () => arrow(600, 560, 820, 560, { w: 12, head: 44 }));
+  E('clk', k.clk, 1080, 540, () => { clock(1080, 520, 170, { h: 3, m: 0 }); tx('언제 할지', 1080, 790, { size: 70, col: ORA }); });
+});
+
+scene(49, { cut: c(49), fig: c(49), head: c(49, 0.2), flag: c(49, 0.5), arrow: c(49, 1.1), bub: c(49, 1.6) }, [['whoosh', 'cut'], ['pop', 'flag'], ['pop', 'bub']], (k) => {
+  E('head', k.head, 760, 150, () => sign(760, 150, 480, 120, '만약-그러면', { size: 70, fill: LORA }));
+  E('fig', k.fig, 1350, GY, () => { fig(1350, GY, { pose: 'run', face: 'big' }); for (let i = 0; i < 3; i++) line(1110 - i * 20, 560 + i * 70, 1200 - i * 20, 560 + i * 70, { w: 5, seg: 100 }); });
+  E('flag', k.flag, 460, GY, () => { flag(420, GY, 380); tag(510, 700, '신호', { size: 70, fill: YEL }); });
+  E('arrow', k.arrow, 830, 560, () => arrow(720, 600, 960, 600, { w: 12, head: 44 }));
+  E('bub', k.bub, 1560, 300, () => bubble(1580, 300, 300, 140, 1430, 430, '시작!', { size: 70 }));
+});
+
+scene(50, { cut: c(50), fig: c(50), tag: c(50, 0.25), easel: c(50, 0.9) }, [['whoosh', 'cut'], ['pop', 'tag'], ['pop', 'easel']], (k) => {
+  E('fig', k.fig, 1450, GY, () => fig(1450, GY, { pose: 'point', face: 'smile', flip: true }));
+  E('tag', k.tag, 1450, 300, () => tag(1450, 300, '피터 골비처', { size: 66 }));
+  E('easel', k.easel, 680, 500, () => { easel(680, 470, 760, 520, GY);
+    box(370, 340, 250, 200, { fill: YEL, r: 10, w: 4.5 }); tx('만약', 495, 440, { size: 70 });
+    arrow(640, 440, 720, 440, { w: 9, head: 30 });
+    box(740, 340, 250, 200, { fill: ORA, r: 10, w: 4.5 }); tx('그러면', 865, 440, { size: 66 }); });
+});
+
+scene(51, { cut: c(51), fig: c(51), st: c(51, 0.15), tag: c(51, 0.5) }, [['whoosh', 'cut'], ['pop', 'tag']], (k) => {
+  E('fig', k.fig, 1500, GY, () => fig(1500, GY, { pose: 'point', face: 'smile', flip: true }));
+  [[380, 11], [600, 15], [820, 9], [1040, 13]].forEach(([x, n], i) => E('st' + i, k.st + i * 0.1, x, GY, () => { stackPapers(x, GY, n, 170); shadow(x, GY, 200); }));
+  E('tag', k.tag, 710, 200, () => tag(710, 200, '연구 94개', { size: 90, fill: YEL }));
+});
+
+scene(52, { cut: c(52), fig: c(52), b1: c(52, 0.3), b2: c(52, 1.0), arrow: c(52, 1.7) }, [['whoosh', 'cut'], ['pop', 'b2'], ['pop', 'arrow']], (k) => {
+  const base = 850;
+  E('fig', k.fig, 1520, GY, () => fig(1520, GY, { pose: 'cheer', face: 'big' }));
+  E('b1', k.b1, 560, base, () => { ground(760, base, 760); box(460, base - 220, 200, 220, { fill: GRY, r: 4, w: 5 }); tx('목표만', 560, base + 55, { size: 60 }); });
+  E('b2', k.b2, 940, base, () => { box(840, base - 520, 200, 520, { fill: ORA, r: 4, w: 5 }); tx('목표 + 만약', 940, base + 55, { size: 60 }); });
+  E('arrow', k.arrow, 740, 400, () => { arrow(640, 560, 820, 330, { bend: -40 }); tag(1180, 230, '효과 UP', { size: 66, col: RED, fill: YEL }); });
+});
+
+scene(53, { cut: c(53), fig: c(53), note: c(53, 0.3), stick: c(53, 1.3) }, [['whoosh', 'cut'], ['pop', 'note'], ['pop', 'stick']], (k) => {
+  E('fig', k.fig, 1380, GY, () => fig(1380, GY, { pose: 'point', face: 'smile', flip: true }));
+  E('note', k.note, 700, 500, () => {
+    paper(700, 500, 420, 340, { title: '미루던 일', lines: 3, fill: '#efece3', size: 60 });
+    wob([[490, 330], [560, 400], [490, 400]], { w: 2.5, col: '#777', seg: 1e4 }); wob([[490, 365], [525, 400]], { w: 2.5, col: '#777', seg: 1e4 });
+    for (const [x, y] of [[860, 640], [880, 610], [540, 650]]) line(x, y, x + 24, y + 4, { w: 3, col: '#999', seg: 100 });
+  });
+  E('stick', k.stick, 900, 620, () => sticky(900, 640, 300, 170, "만약 ~하면,\n바로 시작!", { rot: 0.07, fill: ORA, size: 46 }));
+});
+
+scene(54, { cut: c(54), fig: c(54), title: c(54, 0.3), pl: c(54, 0.7) }, [['whoosh', 'cut'], ['ding', 'pl']], (k) => {
+  E('fig', k.fig, 340, GY, () => fig(340, GY, { pose: 'point', face: 'smile' }));
+  E('title', k.title, 1180, 230, () => tx('5가지 정리', 1180, 230, { size: 110 }));
+  for (let i = 0; i < 5; i++) { const x = 740 + i * 220; E('p' + i, k.pl + i * 0.16, x, 560, () => { g.save(); g.translate(x, 560); g.rotate(jr(0.06)); box(-85, -85, 170, 170, { fill: YEL, r: 16, w: 5 }); tx(String(i + 1), 0, 4, { size: 110 }); g.restore(); }); }
+});
+
+function panel(cx, num, label, draw) {
+  box(cx - 400, 130, 800, 820, { fill: 'rgba(255,255,255,0.35)', r: 24, w: 4, dash: [16, 12] });
+  g.save(); g.translate(cx - 330, 200); g.rotate(-0.05); box(-50, -45, 100, 90, { fill: YEL, r: 12, w: 5 }); tx(String(num), 0, 4, { size: 70 }); g.restore();
+  draw(); tx(label, cx, 850, { size: 76, maxW: 720 });
+}
+scene(55, { cut: c(55), p1: c(55), p2: c(55, 1.55) }, [['whoosh', 'cut'], ['pop', 'p2']], (k) => {
+  E('p1', k.p1, 500, 540, () => panel(500, 1, '25분 집중', () => tomato(500, 500, 170)));
+  E('p2', k.p2, 1420, 540, () => panel(1420, 2, '2분 일은 바로', () => stopwatch(1420, 510, 170, { frac: 0.33, label: '2분', size: 70 })));
+});
+
+scene(56, { cut: c(56), p3: c(56), p4: c(56, 1.3) }, [['whoosh', 'cut'], ['pop', 'p4']], (k) => {
+  E('p3', k.p3, 500, 540, () => panel(500, 3, '중요한 일 먼저', () => matrix(560, 490, 480, 380, { hl: 'TR', size: 30, hdrSize: 34, hdr: true })));
+  E('p4', k.p4, 1420, 540, () => panel(1420, 4, '하루는 블록으로', () => { const cell = dayTable(1210, 240, 420, 500, { rows: ['', '', '', ''], lab: 50 }); [[0, YEL], [1, LORA], [3, LORA]].forEach(([i, f]) => block(cell(i), '', f)); }));
+});
+
+scene(57, { cut: c(57), stairs: c(57), fig: c(57, 0.15), last: c(57, 0.75), spark: c(57, 1.6) }, [['whoosh', 'cut'], ['pop', 'last'], ['pop', 'spark']], (k) => {
+  const L = ['25분', '2분', '중요한 일', '블록', '만약'];
+  const sx = (i) => 210 + i * 260, top = (i) => 990 - 104 * (i + 1);
+  E('stairs', k.stairs, 860, 900, () => { for (let i = 0; i < 4; i++) { box(sx(i), top(i), 260, 990 - top(i), { fill: i % 2 ? '#f6f2e8' : PAPER, r: 4, w: 5 }); tx(L[i], sx(i) + 130, top(i) + 56, { size: 50, maxW: 230 }); } });
+  E('last', k.last, sx(4) + 130, top(4) + 60, () => { box(sx(4), top(4), 260, 990 - top(4), { fill: YEL, r: 4, w: 5 }); tx("'만약' 한 줄", sx(4) + 130, top(4) + 56, { size: 50, maxW: 230, col: RED }); });
+  E('fig', k.fig, sx(4) + 130, top(4), () => fig(sx(4) + 130, top(4), { s: 0.68, pose: 'cheer', face: 'big', shade: false }));
+  E('spark', k.spark, sx(4) + 130, 120, () => { sparkle(sx(4) - 20, 190, 30, ORA); sparkle(sx(4) + 290, 150, 36, YEL); sparkle(sx(4) + 320, 300, 18, ORA); });
+});
+
+card(58);
+card(59);
+
+scene(60, { cut: c(60), fig: c(60), plan: c(60, 0.3), sun: c(60, 0.5), first: c(60, 1.3), circ: c(60, 2.0) }, [['whoosh', 'cut'], ['ding', 'first'], ['pencil', 'circ']], (k) => {
+  E('fig', k.fig, 400, GY, () => fig(400, GY, { pose: 'wave', face: 'big' }));
+  let cell = null;
+  E('plan', k.plan, 1050, 560, () => { cell = dayTable(720, 150, 660, 800, { rows: ['아침', '오전', '점심', '오후', '저녁'], head: '내일', lab: 130 }); });
+  E('sun', k.sun, 1690, 230, () => sun(1690, 230, 90));
+  if (cell) E('first', k.first, cell(0).cx, cell(0).cy, () => { block(cell(0), '첫 25분', ORA, 60); tomato(cell(0).x + cell(0).w + 120, cell(0).cy, 60); });
+  if (cell) D('circ', k.circ, 0.5, (p) => ell(cell(0).cx, cell(0).cy, cell(0).w / 2 + 40, cell(0).h / 2 + 34, { col: RED, w: 7, p }));
+});
+
+SCENES.sort((a, b) => a.n - b.n);
+// T: 장면 키 → { 등장 이름: 시각 }
+const T = Object.fromEntries(SCENES.map((s) => [s.key, s.T]));
+
+// ───────── 효과음 큐: 같은 T에서 만든다 ─────────
+const SFX_FILE = { pop: 'assets/sfx/pop.wav', whoosh: 'assets/sfx/whoosh.wav', ding: 'assets/sfx/ding.wav', pencil: 'assets/sfx/pencil.wav' };
+const SFX_VOL = { pop: 0.6, whoosh: 0.45, ding: 0.7, pencil: 0.4 };
+const SFX_LEAD = { whoosh: -0.1 };   // whoosh는 가장 큰 지점(약 0.13s)을 컷에 맞춘다
+const SFX = [];
+for (const s of SCENES) for (const [kind, key, off = 0, vol = SFX_VOL[kind]] of s.sfx) {
+  SFX.push({ file: SFX_FILE[kind], t: +Math.max(0, s.T[key] + off + (SFX_LEAD[kind] || 0)).toFixed(3), vol, kind, scene: s.key });
+}
+SFX.sort((a, b) => a.t - b.t);
+
+// 점검: 카드 표시가 script.json과 같은지, ding/whoosh 간격, 문장당 큐 수
+{
+  const want = SCRIPT.filter((l) => l.card).map((l) => +l.id.slice(1)).join(','), got = SCENES.filter((s) => s.card).map((s) => s.n).join(',');
+  if (want !== got) console.warn('card mismatch', want, got);
+  for (const a of SFX) if (a.kind === 'ding') for (const b of SFX) if (b.kind === 'whoosh' && Math.abs(a.t - b.t) < 0.1) console.warn('ding/whoosh overlap', a, b);
+  CAPS.forEach((cp, i) => { const t1 = i + 1 < CAPS.length ? CAPS[i + 1].start - 0.15 : DUR; const n = SFX.filter((s) => s.t >= cp.start - 0.15 && s.t < t1).length; if (n > 3) console.warn('too many sfx', cp.id, n); });
+}
+
+// ───────── 렌더 ─────────
+function drawCard(s) {
+  const text = CAPS[s.n - 1].text, size = 100;
+  let w = textW(text, size); const sc = Math.min(1, 1640 / w); w *= sc;
+  const p = clamp((NOW - s.T.text) / 0.45), x0 = W / 2 - w / 2 - 20;
+  if (p <= 0) return;
+  g.save(); g.beginPath(); g.rect(0, 0, x0 + (w + 40) * p, H); g.clip();
+  tx(text, W / 2, H * 0.5, { size: size * sc, col: '#232323' });
+  g.restore();
+}
+function sceneAt(t) { let s = SCENES[0]; for (const x of SCENES) if (x.T.cut <= t) s = x; return s; }
+function renderAt(t) {
+  NOW = t; g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1; g.drawImage(BG, 0, 0);
+  const s = sceneAt(t); SK = s.key;
+  if (s.card) drawCard(s); else s.draw(s.T);
+  if (window.PLACEHOLDER_TIMING) { tx('임시 타이밍 (timing.js 없음)', 30, 50, { size: 30, col: RED, align: 'left' }); }
+}
+
+// ───────── 프레임 시트 ─────────
+window.sheet = async (times = CAPS.map((k) => (k.start + k.end) / 2), cols = 6, width = 270, savePath = null) => {
+  const h = Math.round(width * H / W), rows = Math.ceil(times.length / cols);
+  const sc = document.createElement('canvas'); sc.width = cols * width; sc.height = rows * (h + 28);
+  const sg = sc.getContext('2d'); sg.fillStyle = '#222'; sg.fillRect(0, 0, sc.width, sc.height);
+  times.forEach((tt, i) => {
+    renderAt(tt); const x = (i % cols) * width, y = Math.floor(i / cols) * (h + 28);
+    sg.drawImage(out, x, y, width, h); sg.fillStyle = '#ddd'; sg.font = '16px sans-serif';
+    const cap = CAPS.find((k) => tt >= k.start && tt < k.end + 0.04);
+    sg.fillText(`${tt.toFixed(2)}s ${cap ? cap.id : ''}`, x + 6, y + h + 20);
+  });
+  renderAt(+scrub.value);
+  if (savePath) { const b = await new Promise((r) => sc.toBlob(r, 'image/png')); await fetch('/__save?path=' + encodeURIComponent(savePath), { method: 'POST', body: b }); }
+  return sc.toDataURL('image/jpeg', 0.8);
+};
+
+// ───────── 내보내기 연결 (scripts/export.js) ─────────
+window.renderAt = renderAt;
+Object.assign(window, { W, H, FPS, T, SFX, c, SCENES });
+// peak 0.81: AAC 인코딩 순간 튐(약 0.3dB, v2에서 측정)을 상쇄해 완성본 피크를 약 -1.5dBFS로; audioShift 2112 = qa/report-v1.md 에서 측정한 AAC 프라이밍 지연(2112 샘플, 44ms)
+window.installExport({ W, H, FPS, DUR, CAPS, SFX, renderAt, canvas: out, music: null, duck: [], peak: 0.81, audioShift: 2112 });
+
+// ───────── 미리보기 UI ─────────
+const scrub = document.getElementById('scrub'), tl = document.getElementById('tl');
+scrub.max = DUR; scrub.value = +(new URLSearchParams(location.search).get('t') || 0);
+const show = () => { renderAt(+scrub.value); tl.textContent = (+scrub.value).toFixed(2) + 's / ' + DUR + 's'; };
+scrub.oninput = show; show();
+window.__ready = true;
+</script>
